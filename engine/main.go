@@ -390,8 +390,8 @@ func tableRef(database, table string) string {
 	return quoteIdent(database) + "." + quoteIdent(table)
 }
 
-func readColumns(ctx context.Context, handle *sql.DB, ref string) ([]string, error) {
-	rows, err := handle.QueryContext(ctx, "SHOW COLUMNS FROM "+ref)
+func readColumns(ctx context.Context, qer queryer, ref string) ([]string, error) {
+	rows, err := qer.QueryContext(ctx, "SHOW COLUMNS FROM "+ref)
 	if err != nil {
 		return nil, err
 	}
@@ -475,6 +475,29 @@ func emitRows(cols []string, raw []json.RawMessage, total int64, offset, limit i
 	})
 }
 
+// validateWhere vets a user-supplied WHERE expression that gets embedded in
+// the plugin's own SELECT. It must not be able to close the enclosing group,
+// chain statements, write server-side files, or comment out the appended
+// LIMIT/OFFSET. It also always runs inside a read-only transaction.
+func validateWhere(expr string) error {
+	if len(expr) > 4096 {
+		return fmt.Errorf("WHERE expression too long")
+	}
+	if strings.Contains(expr, ";") {
+		return fmt.Errorf("WHERE expression must be a single expression (no ';')")
+	}
+	upper := strings.ToUpper(expr)
+	if strings.Contains(upper, "INTO OUTFILE") || strings.Contains(upper, "INTO DUMPFILE") {
+		return fmt.Errorf("WHERE expression may not write server-side files")
+	}
+	for _, bad := range []string{"--", "#", "/*", "*/"} {
+		if strings.Contains(expr, bad) {
+			return fmt.Errorf("WHERE expression may not contain SQL comments")
+		}
+	}
+	return nil
+}
+
 func cmdRows(fs *flag.FlagSet) {
 	name := fs.String("profile", "", "connection profile name")
 	db := fs.String("db", "", "database")
@@ -482,6 +505,7 @@ func cmdRows(fs *flag.FlagSet) {
 	limitF := fs.String("limit", "50", "rows per page")
 	offsetF := fs.String("offset", "0", "row offset")
 	search := fs.String("search", "", "LIKE search across all columns")
+	whereF := fs.String("where", "", "raw SQL WHERE expression (read-only)")
 	_ = fs.Parse(os.Args[2:])
 	if *name == "" || *table == "" {
 		fs.Usage()
@@ -511,7 +535,14 @@ func cmdRows(fs *flag.FlagSet) {
 	handle := open(ctx, p, database)
 	defer handle.Close()
 	ref := tableRef(database, *table)
-	cols, err := readColumns(ctx, handle, ref)
+	// Everything below runs in a READ ONLY transaction, so even a hostile
+	// WHERE expression cannot make the session modify data.
+	tx, err := handle.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		fail("%v", err)
+	}
+	defer tx.Rollback()
+	cols, err := readColumns(ctx, tx, ref)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -522,22 +553,33 @@ func cmdRows(fs *flag.FlagSet) {
 	var total int64
 	var where string
 	var args []any
+	var conds []string
 	if *search != "" {
-		conds := make([]string, len(cols))
+		likes := make([]string, len(cols))
 		args = make([]any, len(cols))
 		for i, c := range cols {
-			conds[i] = quoteIdent(c) + " LIKE ?"
+			likes[i] = quoteIdent(c) + " LIKE ?"
 			args[i] = "%" + *search + "%"
 		}
-		where = " WHERE " + strings.Join(conds, " OR ")
+		conds = append(conds, "("+strings.Join(likes, " OR ")+")")
 	}
-	if err := handle.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+ref+where, args...).Scan(&total); err != nil {
+	if strings.TrimSpace(*whereF) != "" {
+		expr := strings.TrimSpace(*whereF)
+		if err := validateWhere(expr); err != nil {
+			fail("%v", err)
+		}
+		conds = append(conds, "("+expr+")")
+	}
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+ref+where, args...).Scan(&total); err != nil {
 		fail("%v", err)
 	}
 
 	q := "SELECT * FROM " + ref + where + " LIMIT ? OFFSET ?"
 	pageArgs := append(append([]any{}, args...), limit, offset)
-	pageCols, raw, truncated, err := fetchPage(ctx, handle, q, pageArgs, limit)
+	pageCols, raw, truncated, err := fetchPage(ctx, tx, q, pageArgs, limit)
 	if err != nil {
 		fail("%v", err)
 	}

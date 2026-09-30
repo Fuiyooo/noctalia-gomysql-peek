@@ -109,6 +109,7 @@ rm ~/.local/bin/omysql-engine
 | `y`          | Row detail: yank the focused field's value to the clipboard (wl-copy) |
 | type         | Filter the current list — each screen keeps its own filter |
 | `/`          | Search all columns of the open table (LIKE)     |
+| `w`          | Table data view: enter a SQL `WHERE` expression to filter server-side (paging, count and search keep working; empty clears it) |
 | `q`          | Open the read-only SQL box                      |
 | ← / →        | Previous / next page (row detail: previous/next row) |
 | `r`          | Refresh what you are viewing (re-runs the query or reloads rows) |
@@ -138,6 +139,7 @@ omysql-engine profile remove --name prod
 omysql-engine dbs --profile sample
 omysql-engine tables --profile sample --db sampledb
 omysql-engine rows --profile sample --db sampledb --table employees --limit 50 --offset 0 --search doe
+omysql-engine rows --profile sample --db sampledb --table employees --where "salary > 70000"
 omysql-engine query --profile sample --db sampledb --sql "SELECT id, email FROM employees LIMIT 10"
 ```
 
@@ -160,7 +162,11 @@ stdin so the password never appears on the process command line.
   DESCRIBE / EXPLAIN / WITH / VALUES`, rejects `ANALYZE`, blocks
   `INTO OUTFILE / DUMPFILE`, allows a single statement only — and every
   statement additionally runs inside a `READ ONLY` transaction, so the
-  server itself rejects anything that would modify data.
+  server itself rejects anything that would modify data. The table view's
+  `w` WHERE expression is embedded in the plugin's own SELECT and runs in
+  the same `READ ONLY` transaction; it rejects `;`, `INTO OUTFILE/DUMPFILE`
+  and SQL comments (so it cannot close the enclosing group or comment out
+  the appended `LIMIT`).
 - **Resource bounds:** cells truncate at 4096 characters, result sets cap at
   256 columns / 8 MB total output, database calls have a 45 s total deadline
   (plus 5 s connect / 30 s read-write timeouts), and the overlay kills a hung

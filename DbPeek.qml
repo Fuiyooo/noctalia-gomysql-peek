@@ -36,6 +36,8 @@ Item {
   property bool searchOpen: false
   property string searchTerm: ""
   property bool queryOpen: false
+  property bool whereOpen: false
+  property string whereClause: ""
   property bool isQueryResult: false
   property string lastSql: ""
 
@@ -129,7 +131,7 @@ Item {
     if (view === "rows") {
       if (rowDetail) return "↑ ↓ field · ← → row · y yank · ⏎ or esc back to data"
       if (isQueryResult) return "⏎ row · r re-run · ⇧R fresh table · esc esc back"
-      return "⏎ row · / search · q sql · ← → page · r refresh · ⇧R fresh · esc esc back"
+      return "⏎ row · / search · w where · q sql · ← → page · r refresh · ⇧R fresh · esc esc back"
     }
     if (view === "form") return "⏎ next field · last field saves · esc cancel"
     if (view === "profiles") return "n new · e edit · d delete · ⏎ open · esc back"
@@ -421,6 +423,8 @@ Item {
     root.searchOpen = false
     root.searchTerm = ""
     root.queryOpen = false
+    root.whereOpen = false
+    root.whereClause = ""
     root.offset = 0
     root.selectedIndex = 0
     root.closeRowDetail()
@@ -434,6 +438,7 @@ Item {
     var args = ["rows", "--profile", root.activeProfile.name, "--db", root.database,
       "--table", root.table, "--limit", String(root.limit), "--offset", String(root.offset)]
     if (root.searchOpen && root.searchTerm !== "") args = args.concat(["--search", root.searchTerm])
+    if (root.whereClause !== "") args = args.concat(["--where", root.whereClause])
     run(args, function (data) {
       if (!data) return
       root.columns = data.columns || []
@@ -504,11 +509,28 @@ Item {
     Qt.callLater(function () { queryEntry.forceActiveFocus() })
   }
 
+  function openWhere() {
+    root.whereOpen = true
+    root.searchOpen = false
+    root.queryOpen = false
+    whereEntry.text = root.whereClause
+    Qt.callLater(function () { whereEntry.forceActiveFocus() })
+  }
+
+  function applyWhere() {
+    root.whereClause = whereEntry.text.trim()
+    root.offset = 0
+    root.selectedIndex = 0
+    root.fetchRows()
+    Qt.callLater(function () { keyCatcher.forceActiveFocus() })
+  }
+
   function closeInputs() {
     var hadSearch = root.searchOpen && root.searchTerm !== ""
     root.searchOpen = false
     root.searchTerm = ""
     root.queryOpen = false
+    root.whereOpen = false
     if (hadSearch && root.view === "rows" && !root.isQueryResult) {
       root.offset = 0
       root.fetchRows()
@@ -581,6 +603,8 @@ Item {
     queryEntry.text = ""
     root.searchOpen = false
     root.searchTerm = ""
+    root.whereOpen = false
+    root.whereClause = ""
     root.offset = 0
     root.selectedIndex = 0
     root.closeRowDetail()
@@ -607,7 +631,7 @@ Item {
 
   function goBack() {
     if (root.busy) return
-    if (searchEntry.activeFocus || queryEntry.activeFocus) {
+    if (searchEntry.activeFocus || queryEntry.activeFocus || whereEntry.activeFocus) {
       root.closeInputs()
       return
     }
@@ -666,6 +690,7 @@ Item {
     if (root.view === "rows") {
       if (queryEntry.activeFocus) { root.runQuery(); return }
       if (searchEntry.activeFocus) { root.applySearch(); return }
+      if (whereEntry.activeFocus) { root.applyWhere(); return }
       if (root.rowDetail) { root.closeRowDetail(); return }
       root.openRowDetail()
       return
@@ -842,6 +867,9 @@ Item {
           } else if (event.key === Qt.Key_Y && root.view === "rows" && root.rowDetail) {
             root.yankField()
             event.accepted = true
+          } else if (event.key === Qt.Key_W && root.view === "rows" && !root.isQueryResult) {
+            root.openWhere()
+            event.accepted = true
           } else if (event.key === Qt.Key_Slash && root.view === "rows") {
             root.openSearch()
             event.accepted = true
@@ -946,12 +974,12 @@ Item {
 
           Item {
             id: inputBar
-            visible: root.view === "rows" && (root.searchOpen || root.queryOpen)
+            visible: root.view === "rows" && (root.searchOpen || root.queryOpen || root.whereOpen)
             anchors.top: separator.bottom
             anchors.topMargin: Style.space(4)
             anchors.left: parent.left
             anchors.right: parent.right
-            height: visible ? Math.max(searchEntry.implicitHeight, queryEntry.implicitHeight) : 0
+            height: visible ? Math.max(Math.max(searchEntry.implicitHeight, queryEntry.implicitHeight), whereEntry.implicitHeight) : 0
 
             RowLayout {
               anchors.fill: parent
@@ -974,6 +1002,16 @@ Item {
                 foreground: root.foreground
                 placeholderText: "Read-only SQL…  (⏎ run · esc close)"
                 onAccepted: root.runQuery()
+                Keys.onEscapePressed: root.closeInputs()
+              }
+
+              TextField {
+                id: whereEntry
+                visible: root.whereOpen
+                Layout.fillWidth: true
+                foreground: root.foreground
+                placeholderText: "WHERE …  (⏎ apply · empty clears · esc close)"
+                onAccepted: root.applyWhere()
                 Keys.onEscapePressed: root.closeInputs()
               }
             }
@@ -1404,9 +1442,15 @@ Item {
 
               Text {
                 textFormat: Text.PlainText
-                text: root.yankFeedback !== "" ? root.yankFeedback : (root.isQueryResult
-                  ? Peek.rangeLabel(root.offset, root.shown, root.tableTotal, root.truncated) + (root.lastSql !== "" ? "  ·  " + root.lastSql : "")
-                  : Peek.rangeLabel(root.offset, root.shown, root.tableTotal, root.truncated))
+                text: {
+                  if (root.yankFeedback !== "") return root.yankFeedback
+                  if (root.isQueryResult) {
+                    return Peek.rangeLabel(root.offset, root.shown, root.tableTotal, root.truncated) + (root.lastSql !== "" ? "  ·  " + root.lastSql : "")
+                  }
+                  var label = Peek.rangeLabel(root.offset, root.shown, root.tableTotal, root.truncated)
+                  if (root.whereClause !== "") label += "  ·  where: " + root.whereClause
+                  return label
+                }
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
