@@ -17,6 +17,16 @@ Item {
 
   property string engineBin: Quickshell.env("HOME") + "/.local/bin/omysql-engine"
 
+  // One scale factor for the whole overlay: fonts, padding and row metrics
+  // all derive from it, so the UI grows/shrinks together.
+  property real uiScale: 1.15
+  readonly property int fsTitle: Math.round(Style.font.title * uiScale)
+  readonly property int fsSubtitle: Math.round(Style.font.subtitle * uiScale)
+  readonly property int fsBody: Math.round(Style.font.body * uiScale)
+  readonly property int fsBodySmall: Math.round(Style.font.bodySmall * uiScale)
+  readonly property int fsCaption: Math.round(Style.font.caption * uiScale)
+  function sp(n) { return Math.round(Style.space(n) * uiScale) }
+
   property string view: "profiles"
   property var profiles: []
   property var databases: []
@@ -138,7 +148,7 @@ Item {
     return "type to filter · ⏎ open · r refresh · esc back"
   }
 
-  readonly property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
+  readonly property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, root.sp(2)))
 
   function open(payloadJson) {
     root.opened = true
@@ -457,8 +467,8 @@ Item {
   }
 
   function applyWidths() {
-    var charW = Math.max(6, Math.round(Style.font.bodySmall * 0.62))
-    root.colWidths = Peek.computeWidths(root.columns, root.rows, charW, Style.space(44), Style.space(320), Style.space(10))
+    var charW = Math.max(6, Math.round(root.fsBodySmall * 0.62))
+    root.colWidths = Peek.computeWidths(root.columns, root.rows, charW, root.sp(44), root.sp(320), root.sp(10))
   }
 
   function runQuery() {
@@ -793,8 +803,8 @@ Item {
 
     BorderSurface {
       id: card
-      width: Math.min(Style.space(1150), panel.width - Style.gapsOut * 2)
-      height: Math.min(Style.space(780), panel.height - Style.gapsOut * 2)
+      width: Math.min(root.sp(1150), panel.width - Style.gapsOut * 2)
+      height: Math.min(root.sp(780), panel.height - Style.gapsOut * 2)
       radius: root.cornerRadius
       anchors.centerIn: parent
       color: root.background
@@ -909,16 +919,16 @@ Item {
               id: headerColumn
               anchors.left: parent.left
               anchors.right: metaText.left
-              anchors.rightMargin: Style.space(10)
+              anchors.rightMargin: root.sp(10)
               anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(1)
+              spacing: root.sp(1)
 
               Text {
                 textFormat: Text.PlainText
                 text: root.titleText
                 color: root.foreground
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.title
+                font.pixelSize: root.fsTitle
                 font.bold: true
                 elide: Text.ElideRight
                 width: parent.width
@@ -930,7 +940,7 @@ Item {
                 text: root.breadcrumbText
                 color: root.dim
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: root.fsCaption
                 elide: Text.ElideMiddle
                 width: parent.width
               }
@@ -943,7 +953,7 @@ Item {
               text: root.busy ? "loading…" : root.hintText
               color: root.busy ? root.selectedText : root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: root.fsCaption
             }
           }
 
@@ -952,21 +962,21 @@ Item {
             textFormat: Text.PlainText
             visible: root.errorText !== ""
             anchors.top: headerItem.bottom
-            anchors.topMargin: Style.space(4)
+            anchors.topMargin: root.sp(4)
             anchors.left: parent.left
             anchors.right: parent.right
             height: visible ? implicitHeight : 0
             text: root.errorText
             color: root.urgent
             font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: root.fsBodySmall
             wrapMode: Text.WordWrap
           }
 
           PanelSeparator {
             id: separator
             anchors.top: errorText.bottom
-            anchors.topMargin: Style.space(4)
+            anchors.topMargin: root.sp(4)
             anchors.left: parent.left
             anchors.right: parent.right
             foreground: root.foreground
@@ -976,14 +986,14 @@ Item {
             id: inputBar
             visible: root.view === "rows" && (root.searchOpen || root.queryOpen || root.whereOpen)
             anchors.top: separator.bottom
-            anchors.topMargin: Style.space(4)
+            anchors.topMargin: root.sp(4)
             anchors.left: parent.left
             anchors.right: parent.right
             height: visible ? Math.max(Math.max(searchEntry.implicitHeight, queryEntry.implicitHeight), whereEntry.implicitHeight) : 0
 
             RowLayout {
               anchors.fill: parent
-              spacing: Style.space(6)
+              spacing: root.sp(6)
 
               TextField {
                 id: searchEntry
@@ -1020,9 +1030,9 @@ Item {
           Item {
             id: contentArea
             anchors.top: inputBar.bottom
-            anchors.topMargin: Style.space(4)
+            anchors.topMargin: root.sp(4)
             anchors.bottom: footer.top
-            anchors.bottomMargin: Style.space(4)
+            anchors.bottomMargin: root.sp(4)
             anchors.left: parent.left
             anchors.right: parent.right
 
@@ -1064,7 +1074,7 @@ Item {
 
                 Rectangle {
                   width: parent.width
-                  height: Style.space(30)
+                  height: root.sp(30)
                   color: root.rowStripe
 
                   Row {
@@ -1079,14 +1089,14 @@ Item {
 
                         Text {
                           anchors.fill: parent
-                          anchors.leftMargin: Style.space(4)
-                          anchors.rightMargin: Style.space(4)
+                          anchors.leftMargin: root.sp(4)
+                          anchors.rightMargin: root.sp(4)
                           verticalAlignment: Text.AlignVCenter
                           textFormat: Text.PlainText
                           text: root.columns[index] || ""
                           color: root.foreground
                           font.family: root.fontFamily
-                          font.pixelSize: Style.font.bodySmall
+                          font.pixelSize: root.fsBodySmall
                           font.bold: true
                           elide: Text.ElideRight
                         }
@@ -1104,7 +1114,7 @@ Item {
                 ListView {
                   id: rowsList
                   width: parent.width
-                  height: hscroll.height - Style.space(30) - 1
+                  height: hscroll.height - root.sp(30) - 1
                   clip: true
                   interactive: false
                   boundsBehavior: Flickable.StopAtBounds
@@ -1119,7 +1129,7 @@ Item {
                     required property int index
                     readonly property var rowData: root.rows[index] || []
                     width: root.tableWidth
-                    height: Style.space(30)
+                    height: root.sp(30)
                     color: index === root.selectedIndex ? root.selectedBackground : (index % 2 === 1 ? root.rowStripe : "transparent")
 
                     MouseArea {
@@ -1144,14 +1154,14 @@ Item {
 
                           Text {
                             anchors.fill: parent
-                            anchors.leftMargin: Style.space(4)
-                            anchors.rightMargin: Style.space(4)
+                            anchors.leftMargin: root.sp(4)
+                            anchors.rightMargin: root.sp(4)
                             verticalAlignment: Text.AlignVCenter
                             textFormat: Text.PlainText
                              text: Peek.fmtCell(rowDelegate.rowData[cellItem.index])
                              color: Peek.isNull(rowDelegate.rowData[cellItem.index]) ? root.dim : (rowDelegate.index === root.selectedIndex ? root.selectedText : root.foreground)
                              font.family: root.fontFamily
-                             font.pixelSize: Style.font.bodySmall
+                             font.pixelSize: root.fsBodySmall
                              font.italic: Peek.isNull(rowDelegate.rowData[cellItem.index])
                              elide: Text.ElideRight
                            }
@@ -1169,29 +1179,29 @@ Item {
                visible: root.rowDetail
 
                readonly property int fieldWidth: {
-                 var charW = Math.max(6, Math.round(Style.font.bodySmall * 0.62))
+                 var charW = Math.max(6, Math.round(root.fsBodySmall * 0.62))
                  var max = 5
                  for (var i = 0; i < root.detailPairs.length; i++) {
                    max = Math.max(max, String(root.detailPairs[i].field).length)
                  }
-                 return Math.min(Math.max(Style.space(110), max * charW + Style.space(12)), Math.max(Style.space(110), width / 2.4))
+                 return Math.min(Math.max(root.sp(110), max * charW + root.sp(12)), Math.max(root.sp(110), width / 2.4))
                }
 
                Rectangle {
                  width: parent.width
-                 height: Style.space(30)
+                 height: root.sp(30)
                  color: root.rowStripe
 
                  Text {
                    textFormat: Text.PlainText
                    anchors.left: parent.left
-                   anchors.leftMargin: Style.space(4)
+                   anchors.leftMargin: root.sp(4)
                    anchors.verticalCenter: parent.verticalCenter
-                   width: detailContainer.fieldWidth - Style.space(8)
+                   width: detailContainer.fieldWidth - root.sp(8)
                    text: "Field"
                    color: root.foreground
                    font.family: root.fontFamily
-                   font.pixelSize: Style.font.bodySmall
+                   font.pixelSize: root.fsBodySmall
                    font.bold: true
                    elide: Text.ElideRight
                  }
@@ -1201,12 +1211,12 @@ Item {
                    anchors.left: parent.left
                    anchors.leftMargin: detailContainer.fieldWidth
                    anchors.right: parent.right
-                   anchors.rightMargin: Style.space(4)
+                   anchors.rightMargin: root.sp(4)
                    anchors.verticalCenter: parent.verticalCenter
                    text: "Value"
                    color: root.foreground
                    font.family: root.fontFamily
-                   font.pixelSize: Style.font.bodySmall
+                   font.pixelSize: root.fsBodySmall
                    font.bold: true
                    elide: Text.ElideRight
                  }
@@ -1221,7 +1231,7 @@ Item {
                ListView {
                  id: detailList
                  anchors.top: parent.top
-                 anchors.topMargin: Style.space(31)
+                 anchors.topMargin: root.sp(31)
                  anchors.bottom: parent.bottom
                  anchors.left: parent.left
                  anchors.right: parent.right
@@ -1236,7 +1246,7 @@ Item {
                    id: detailRowItem
                    required property int index
                    width: detailList.width
-                   height: Style.space(30)
+                   height: root.sp(30)
                    color: index === root.selectedIndex ? root.selectedBackground : (index % 2 === 1 ? root.rowStripe : "transparent")
 
                    MouseArea {
@@ -1249,13 +1259,13 @@ Item {
                    Text {
                      textFormat: Text.PlainText
                      anchors.left: parent.left
-                     anchors.leftMargin: Style.space(4)
+                     anchors.leftMargin: root.sp(4)
                      anchors.verticalCenter: parent.verticalCenter
-                     width: detailContainer.fieldWidth - Style.space(8)
+                     width: detailContainer.fieldWidth - root.sp(8)
                      text: root.detailPairs[detailRowItem.index] ? root.detailPairs[detailRowItem.index].field : ""
                      color: detailRowItem.index === root.selectedIndex ? root.selectedText : root.foreground
                      font.family: root.fontFamily
-                     font.pixelSize: Style.font.bodySmall
+                     font.pixelSize: root.fsBodySmall
                      font.bold: true
                      elide: Text.ElideRight
                    }
@@ -1265,7 +1275,7 @@ Item {
                      anchors.left: parent.left
                      anchors.leftMargin: detailContainer.fieldWidth
                      anchors.right: parent.right
-                     anchors.rightMargin: Style.space(4)
+                     anchors.rightMargin: root.sp(4)
                      anchors.verticalCenter: parent.verticalCenter
                      text: Peek.fmtCell(root.detailPairs[detailRowItem.index] ? root.detailPairs[detailRowItem.index].value : null)
                      color: {
@@ -1275,7 +1285,7 @@ Item {
                        return detailRowItem.index === root.selectedIndex ? root.selectedText : root.foreground
                      }
                      font.family: root.fontFamily
-                     font.pixelSize: Style.font.bodySmall
+                     font.pixelSize: root.fsBodySmall
                      font.italic: root.detailPairs[detailRowItem.index] ? Peek.isNull(root.detailPairs[detailRowItem.index].value) : false
                      elide: Text.ElideMiddle
                    }
@@ -1294,7 +1304,7 @@ Item {
                 text: root.emptyText()
                 color: root.dim
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle
+                font.pixelSize: root.fsSubtitle
                 horizontalAlignment: Text.AlignHCenter
               }
               ListView {
@@ -1312,7 +1322,7 @@ Item {
                   id: listRow
                   required property int index
                   width: list.width
-                  height: Math.max(Style.space(32), Style.font.body + Style.space(14))
+                  height: Math.max(root.sp(32), root.fsBody + root.sp(14))
                   color: index === root.selectedIndex ? root.selectedBackground : "transparent"
 
                   MouseArea {
@@ -1325,28 +1335,28 @@ Item {
                   Text {
                     textFormat: Text.PlainText
                     anchors.left: parent.left
-                    anchors.leftMargin: Style.space(4)
+                    anchors.leftMargin: root.sp(4)
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.items[listRow.index] ? root.items[listRow.index].label : ""
                     color: listRow.index === root.selectedIndex ? root.selectedText : root.foreground
                     font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
+                    font.pixelSize: root.fsBody
                     font.bold: true
                     elide: Text.ElideMiddle
-                    width: Math.min(parent.width * 0.45, implicitWidth + Style.space(2))
+                    width: Math.min(parent.width * 0.45, implicitWidth + root.sp(2))
                   }
 
                    Text {
                      textFormat: Text.PlainText
                      anchors.right: parent.right
-                     anchors.rightMargin: Style.space(4)
+                     anchors.rightMargin: root.sp(4)
                      anchors.verticalCenter: parent.verticalCenter
                      text: root.items[listRow.index] ? root.items[listRow.index].sub : ""
                      color: root.dim
                      font.family: root.fontFamily
-                     font.pixelSize: Style.font.caption
+                     font.pixelSize: root.fsCaption
                      elide: Text.ElideMiddle
-                     width: Math.min(parent.width * 0.55, implicitWidth + Style.space(2))
+                     width: Math.min(parent.width * 0.55, implicitWidth + root.sp(2))
                    }
                  }
                }
@@ -1357,9 +1367,9 @@ Item {
                visible: root.view === "form"
                anchors.horizontalCenter: parent.horizontalCenter
                anchors.top: parent.top
-               anchors.topMargin: Math.max(Style.space(10), (parent.height - formColumnHeight) / 3)
-               spacing: Style.space(5)
-               width: Math.min(parent.width - Style.space(20), Style.space(420))
+               anchors.topMargin: Math.max(root.sp(10), (parent.height - formColumnHeight) / 3)
+               spacing: root.sp(5)
+               width: Math.min(parent.width - root.sp(20), root.sp(420))
 
                readonly property real formColumnHeight: childrenRect.height
 
@@ -1438,7 +1448,7 @@ Item {
               visible: root.view === "rows"
               anchors.verticalCenter: parent.verticalCenter
               width: parent.width
-              spacing: Style.space(6)
+              spacing: root.sp(6)
 
               Text {
                 textFormat: Text.PlainText
@@ -1453,7 +1463,7 @@ Item {
                 }
                 color: root.dim
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: root.fsCaption
                 elide: Text.ElideMiddle
                 Layout.fillWidth: true
               }
@@ -1492,7 +1502,7 @@ Item {
               }
               color: root.view === "form" && root.errorText !== "" ? root.urgent : root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: root.fsCaption
               elide: Text.ElideRight
               width: parent.width
             }
