@@ -52,6 +52,8 @@ local S = {
   inputMode = "",             -- "" | search | where | sql
   inputToken = 0,
   searchTerm = "", whereClause = "", sqlText = "",
+  suggest = {},
+  schemaCache = nil,          -- { db = name, tables = { {name=,columns=} } }
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
   confirm = nil,
@@ -403,6 +405,86 @@ local function nextPage()
   end
 end
 
+-- ── SQL autosuggestion ──────────────────────────────────────────────────────
+local SQL_KEYWORDS = {
+  "SELECT", "FROM", "WHERE", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET",
+  "JOIN", "LEFT JOIN", "INNER JOIN", "RIGHT JOIN", "ON", "AS", "AND", "OR", "NOT",
+  "IN", "IS NULL", "IS NOT NULL", "LIKE", "ILIKE", "DISTINCT", "CASE", "WHEN",
+  "THEN", "ELSE", "END", "COUNT(*)", "SUM(", "AVG(", "MIN(", "MAX(", "DESC", "ASC",
+  "UNION", "UNION ALL", "SHOW", "DESCRIBE", "EXPLAIN", "WITH", "VALUES",
+}
+
+local function currentToken(text)
+  return string.match(text or "", "([%w_]*)$") or ""
+end
+
+local computeSuggestions -- forward declaration (ensureSchema calls it)
+
+-- Loads table/column names once per database for the suggestion list.
+local function ensureSchema()
+  if S.active == nil then
+    return
+  end
+  if S.schemaCache ~= nil and S.schemaCache.db == S.database then
+    return
+  end
+  S.schemaCache = { db = S.database, tables = {} }
+  engine.run({ "schema", "--profile", S.active.name, "--db", S.database }, function(ok, data)
+    local tables = {}
+    if ok and data and data.tables ~= nil then
+      tables = data.tables
+    end
+    S.schemaCache = { db = S.database, tables = tables }
+    computeSuggestions()
+    render()
+  end)
+end
+
+computeSuggestions = function()
+  local tok = currentToken(S.sqlText)
+  if tok == "" then
+    S.suggest = {}
+    return
+  end
+  local low = string.lower(tok)
+  local seen, out = {}, {}
+  local function add(v)
+    if v ~= nil and v ~= "" and seen[v] == nil then
+      seen[v] = true
+      out[#out + 1] = v
+    end
+  end
+  for _, k in ipairs(SQL_KEYWORDS) do
+    if string.sub(string.lower(k), 1, #low) == low then
+      add(k)
+    end
+  end
+  if S.schemaCache ~= nil then
+    for _, t in ipairs(S.schemaCache.tables or {}) do
+      add(t.name)
+      for _, c in ipairs(t.columns or {}) do
+        add(c)
+      end
+    end
+  end
+  local capped = {}
+  for i = 1, math.min(#out, 6) do
+    capped[i] = out[i]
+  end
+  S.suggest = capped
+end
+
+local function insertSuggestion(value)
+  local text = S.sqlText or ""
+  local n = #currentToken(text)
+  local head = string.sub(text, 1, #text - n)
+  S.sqlText = head .. value
+  S.lastSql = S.sqlText
+  S.inputToken = S.inputToken + 1
+  S.suggest = {}
+  render()
+end
+
 local function openInput(mode)
   if S.view ~= "rows" then
     return
@@ -412,6 +494,11 @@ local function openInput(mode)
   end
   S.inputToken = S.inputToken + 1
   S.inputMode = mode
+  if mode == "sql" then
+    S.sqlText = S.lastSql or ""
+    S.suggest = {}
+    ensureSchema()
+  end
   render()
 end
 
@@ -445,6 +532,8 @@ runSql = function(text)
       S.truncated = data.truncated == true
       S.isQuery = true
       S.lastSql = sql
+      S.sqlText = sql
+      S.suggest = {}
       S.sel = 1
       S.detail = false
       S.inputMode = ""
@@ -867,7 +956,7 @@ local function tableBody(availW)
       ui.label({ key = "e", text = S.busy and "loading…" or "No rows", fontSize = 13, color = "on_surface/0.5" }),
     })
   end
-  local widths = format.fitWidths(cols, S.rows, availW - 12, 7)
+  local widths = format.fitWidths(cols, S.rows, availW - 16, 7)
   local headCells = {}
   for c = 1, #cols do
     headCells[#headCells + 1] = ui.label({
@@ -875,7 +964,7 @@ local function tableBody(availW)
       color = "on_surface", width = widths[c], maxLines = 1,
     })
   end
-  local headerRow = ui.row({ key = "thead", align = "center", height = 28, paddingH = 6, fill = "surface/0.5", radius = 6 }, headCells)
+  local headerRow = ui.row({ key = "thead", align = "center", height = 30, paddingH = 8, fill = "surface/0.6", radius = 6 }, headCells)
 
   local nodes = {}
   for r, row in ipairs(S.rows) do
@@ -895,8 +984,8 @@ local function tableBody(availW)
     local props = {
       key = "r-" .. tostring(idx),
       align = "center",
-      height = 28,
-      paddingH = 6,
+      height = 30,
+      paddingH = 8,
       radius = 4,
       onClick = function()
         S.sel = idx
@@ -910,19 +999,22 @@ local function tableBody(availW)
       end,
     }
     if idx == S.sel then
-      props.fill = "primary/0.22"
+      props.fill = "primary/0.25"
+    elseif idx % 2 == 0 then
+      props.fill = "surface/0.22"
     end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
   return ui.column({ key = "table", flexGrow = 1, gap = 2 }, {
     headerRow,
+    ui.separator({ key = "trule", color = "outline/0.35" }),
     ui.scroll({ key = "rows-scroll", flexGrow = 1 }, nodes),
   })
 end
 
 local function detailBody(availW)
   local fw = math.min(math.max(120, math.floor(availW * 0.3)), 320)
-  local head = ui.row({ key = "dhead", align = "center", height = 28, paddingH = 6, fill = "surface/0.5", radius = 6 }, {
+  local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 8, fill = "surface/0.6", radius = 6 }, {
     ui.label({ key = "f", text = "Field", fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1 }),
     ui.label({ key = "v", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", flexGrow = 1, maxLines = 1 }),
   })
@@ -932,8 +1024,8 @@ local function detailBody(availW)
     local props = {
       key = "dp-" .. tostring(idx),
       align = "center",
-      height = 28,
-      paddingH = 6,
+      height = 30,
+      paddingH = 8,
       radius = 4,
       onClick = function()
         S.sel = idx
@@ -947,7 +1039,9 @@ local function detailBody(availW)
       end,
     }
     if idx == S.sel then
-      props.fill = "primary/0.22"
+      props.fill = "primary/0.25"
+    elseif idx % 2 == 0 then
+      props.fill = "surface/0.22"
     end
     nodes[#nodes + 1] = ui.row(props, {
       ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = "on_surface" }),
@@ -956,6 +1050,7 @@ local function detailBody(availW)
   end
   return ui.column({ key = "detail", flexGrow = 1, gap = 2 }, {
     head,
+    ui.separator({ key = "drule", color = "outline/0.35" }),
     ui.scroll({ key = "detail-scroll", flexGrow = 1 }, nodes),
   })
 end
@@ -1067,9 +1162,10 @@ local function inputBar(availW)
   elseif S.inputMode == "where" then
     seed = S.whereClause
   elseif S.inputMode == "sql" then
-    seed = S.lastSql
+    seed = S.sqlText
   end
-  return ui.row({ key = "inputbar", gap = 8, align = "center" }, {
+
+  local row = ui.row({ key = "inputbar", gap = 8, align = "center" }, {
     ui.input({
       key = "in-" .. S.inputMode .. "-" .. tostring(S.inputToken),
       value = seed,
@@ -1079,12 +1175,15 @@ local function inputBar(availW)
       focus = true,
       submitOnEnter = true,
       onChange = function(v)
-        if S.inputMode == "search" then
-          S.searchTerm = v
-        elseif S.inputMode == "where" then
-          S.whereClause = v
-        else
+        if S.inputMode == "sql" then
+          S.sqlText = v
           S.lastSql = v
+          computeSuggestions()
+          render()
+        elseif S.inputMode == "search" then
+          S.searchTerm = v
+        else
+          S.whereClause = v
         end
       end,
       onSubmit = function()
@@ -1093,15 +1192,34 @@ local function inputBar(availW)
         elseif S.inputMode == "where" then
           applyWhere(S.whereClause)
         else
-          runSql(S.lastSql)
+          runSql(S.sqlText)
         end
       end,
     }),
     ui.button({ key = "iclose", text = "Close", variant = "ghost", controlSize = "sm", onClick = function()
       S.inputMode = ""
+      S.suggest = {}
       render()
     end }),
   })
+
+  local children = { row }
+  if S.inputMode == "sql" and #S.suggest > 0 then
+    local btns = {}
+    for _, s in ipairs(S.suggest) do
+      btns[#btns + 1] = ui.button({
+        key = "sg-" .. s,
+        text = s,
+        variant = "ghost",
+        controlSize = "sm",
+        onClick = function()
+          insertSuggestion(s)
+        end,
+      })
+    end
+    children[#children + 1] = ui.row({ key = "suggest", gap = 6, align = "center" }, btns)
+  end
+  return ui.column({ key = "inputwrap", gap = 6 }, children)
 end
 
 local function footer(availW)

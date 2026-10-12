@@ -92,6 +92,10 @@ at it — one click and you can test the whole flow.
 
 Everything is also clickable, and every action has an on-screen button.
 
+In the SQL box, **autosuggestions** appear as you type: SQL keywords plus the
+current database's table and column names (fetched once per database via the
+engine's `schema` command). Click a suggestion to insert it.
+
 > Escape is owned by Noctalia and closes the panel; use Backspace or a row click
 > to step back instead.
 
