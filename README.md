@@ -67,11 +67,25 @@ Settings → Bar; clicking it toggles the panel.
 
 ## Demo database
 
-A ready-to-use SQLite dataset ships in `dbpeek/demo/` (`demo.db`, rebuilt with
-`sqlite3 demo.db < dbpeek/demo/schema.sql`) with `departments`, `employees`
+A ready-to-use **SQLite** dataset ships in `dbpeek/demo/` (`demo.db`, rebuilt
+with `sqlite3 demo.db < dbpeek/demo/schema.sql`) with `departments`, `employees`
 (60 rows) and `products`. With no connections configured, the overlay shows an
 **Add demo connection** button that creates a `demo` SQLite connection pointing
 at it — one click and you can test the whole flow.
+
+The same dataset is provided for **MySQL/MariaDB** and **PostgreSQL** as SQL
+scripts (DB Peek can't bundle a running server):
+
+```sh
+# MySQL / MariaDB (creates database dbpeek_demo)
+mysql -u root -p < dbpeek/demo/mysql.sql
+
+# PostgreSQL (creates database dbpeek_demo)
+psql -h 127.0.0.1 -U postgres -f dbpeek/demo/postgres.sql
+```
+
+Then add a connection with driver MySQL/PostgreSQL, host `127.0.0.1`, the
+matching port and database `dbpeek_demo`.
 
 ## Keys
 

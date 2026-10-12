@@ -40,6 +40,9 @@ engine.configure({ bin = binPath, connfile = connFile })
 
 local PAGE = tonumber(confStr("page_size", "50")) or 50
 
+-- Gap between table cells/columns (kept identical on the header so columns align).
+local CELL_GAP = 14
+
 -- ── state ───────────────────────────────────────────────────────────────────
 local S = {
   open = false,
@@ -844,9 +847,9 @@ local function header()
   return ui.row({ key = "header", align = "center", gap = 12 }, {
     ui.column({ key = "ht", gap = 2, flexGrow = 1 }, {
       ui.label({ key = "t", text = title(), fontSize = 18, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
-      ui.label({ key = "b", text = bc, fontSize = 11, color = "on_surface/0.6", visible = bc ~= "", maxLines = 1 }),
+      ui.label({ key = "b", text = bc, fontSize = 11, color = "on_surface_variant", visible = bc ~= "", maxLines = 1 }),
     }),
-    ui.label({ key = "meta", text = S.busy and "loading…" or hint(), fontSize = 11, color = "on_surface/0.6", maxLines = 1 }),
+    ui.label({ key = "meta", text = S.busy and "loading…" or hint(), fontSize = 11, color = "on_surface_variant", maxLines = 1 }),
   })
 end
 
@@ -859,7 +862,7 @@ local function notice()
     key = "notice",
     text = text,
     fontSize = 12,
-    color = S.error ~= "" and "error" or "on_surface/0.7",
+    color = S.error ~= "" and "error" or "on_surface_variant",
     maxLines = 2,
   })
 end
@@ -889,7 +892,7 @@ local function listBody(availW, sub)
   if #itemsList == 0 then
     if S.view == "profiles" and not S.busy then
       return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center", gap = 10 }, {
-        ui.label({ key = "e1", text = "No connections yet", fontSize = 13, color = "on_surface/0.7" }),
+        ui.label({ key = "e1", text = "No connections yet", fontSize = 13, color = "on_surface_variant" }),
         ui.button({
           key = "demo",
           text = "Add demo connection (SQLite)",
@@ -898,11 +901,11 @@ local function listBody(availW, sub)
             addDemoConnection()
           end,
         }),
-        ui.label({ key = "e2", text = "or press n to add your own", fontSize = 11, color = "on_surface/0.5" }),
+        ui.label({ key = "e2", text = "or press n to add your own", fontSize = 11, color = "on_surface_variant" }),
       })
     end
     return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center" }, {
-      ui.label({ key = "e", text = S.busy and "loading…" or "No entries", fontSize = 13, color = "on_surface/0.5" }),
+      ui.label({ key = "e", text = S.busy and "loading…" or "No entries", fontSize = 13, color = "on_surface_variant" }),
     })
   end
   local nodes = {}
@@ -935,14 +938,15 @@ local function listBody(availW, sub)
       end,
     }
     if idx == S.sel then
-      props.fill = "primary/0.22"
+      props.fill = "hover"
     end
+    local selected = idx == S.sel
     local cells = {
-      ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
+      ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = selected and "on_hover" or "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
     }
     if S.view == "profiles" then
-      cells[#cells + 1] = ui.label({ key = "d", text = detail, fontSize = 11, color = "on_surface/0.6", flexGrow = 1, maxLines = 1 })
-      cells[#cells + 1] = ui.label({ key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10, color = "primary/0.8" })
+      cells[#cells + 1] = ui.label({ key = "d", text = detail, fontSize = 11, color = selected and "on_hover" or "on_surface_variant", flexGrow = 1, maxLines = 1 })
+      cells[#cells + 1] = ui.label({ key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10, color = "primary" })
     end
     nodes[#nodes + 1] = listRow(props, cells)
   end
@@ -953,10 +957,10 @@ local function tableBody(availW)
   local cols = S.columns
   if #cols == 0 then
     return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center" }, {
-      ui.label({ key = "e", text = S.busy and "loading…" or "No rows", fontSize = 13, color = "on_surface/0.5" }),
+      ui.label({ key = "e", text = S.busy and "loading…" or "No rows", fontSize = 13, color = "on_surface_variant" }),
     })
   end
-  local widths = format.fitWidths(cols, S.rows, availW - 16, 7)
+  local widths = format.fitWidths(cols, S.rows, availW - 16, 7, CELL_GAP)
   local headCells = {}
   for c = 1, #cols do
     headCells[#headCells + 1] = ui.label({
@@ -964,29 +968,40 @@ local function tableBody(availW)
       color = "on_surface", width = widths[c], maxLines = 1,
     })
   end
-  local headerRow = ui.row({ key = "thead", align = "center", height = 30, paddingH = 8, fill = "surface/0.6", radius = 6 }, headCells)
+  local headerRow = ui.row({
+    key = "thead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP,
+    fill = "surface_variant", radius = 6,
+  }, headCells)
 
   local nodes = {}
   for r, row in ipairs(S.rows) do
     local idx = r
+    local selected = idx == S.sel
     local cells = {}
     for c = 1, #cols do
       local v = row[c]
+      local color = "on_surface"
+      if format.isNull(v) then
+        color = selected and "on_hover" or "on_surface_variant"
+      elseif selected then
+        color = "on_hover"
+      end
       cells[#cells + 1] = ui.label({
         key = "c" .. c,
         text = format.cell(v),
         fontSize = 12,
         width = widths[c],
         maxLines = 1,
-        color = format.isNull(v) and "on_surface/0.4" or "on_surface",
+        color = color,
       })
     end
     local props = {
       key = "r-" .. tostring(idx),
       align = "center",
       height = 30,
-      paddingH = 8,
-      radius = 4,
+      paddingH = 10,
+      gap = CELL_GAP,
+      radius = 6,
       onClick = function()
         S.sel = idx
         render()
@@ -998,35 +1013,37 @@ local function tableBody(availW)
         end
       end,
     }
-    if idx == S.sel then
-      props.fill = "primary/0.25"
+    if selected then
+      props.fill = "hover"
     elseif idx % 2 == 0 then
-      props.fill = "surface/0.22"
+      props.fill = "surface_variant/0.35"
     end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
   return ui.column({ key = "table", flexGrow = 1, gap = 2 }, {
     headerRow,
-    ui.separator({ key = "trule", color = "outline/0.35" }),
-    ui.scroll({ key = "rows-scroll", flexGrow = 1 }, nodes),
+    ui.separator({ key = "trule", color = "outline/0.5" }),
+    ui.scroll({ key = "rows-scroll", flexGrow = 1, gap = 1 }, nodes),
   })
 end
 
 local function detailBody(availW)
   local fw = math.min(math.max(120, math.floor(availW * 0.3)), 320)
-  local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 8, fill = "surface/0.6", radius = 6 }, {
+  local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP, fill = "surface_variant", radius = 6 }, {
     ui.label({ key = "f", text = "Field", fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1 }),
     ui.label({ key = "v", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", flexGrow = 1, maxLines = 1 }),
   })
   local nodes = {}
   for i, pair in ipairs(S.detailPairs) do
     local idx = i
+    local selected = idx == S.sel
     local props = {
       key = "dp-" .. tostring(idx),
       align = "center",
       height = 30,
-      paddingH = 8,
-      radius = 4,
+      paddingH = 10,
+      gap = CELL_GAP,
+      radius = 6,
       onClick = function()
         S.sel = idx
         render()
@@ -1038,20 +1055,23 @@ local function detailBody(availW)
         end
       end,
     }
-    if idx == S.sel then
-      props.fill = "primary/0.25"
+    if selected then
+      props.fill = "hover"
     elseif idx % 2 == 0 then
-      props.fill = "surface/0.22"
+      props.fill = "surface_variant/0.35"
     end
     nodes[#nodes + 1] = ui.row(props, {
-      ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = "on_surface" }),
-      ui.label({ key = "v", text = format.cell(pair.value), fontSize = 12, flexGrow = 1, maxLines = 1, color = format.isNull(pair.value) and "on_surface/0.4" or "on_surface" }),
+      ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = selected and "on_hover" or "on_surface" }),
+      ui.label({
+        key = "v", text = format.cell(pair.value), fontSize = 12, flexGrow = 1, maxLines = 1,
+        color = format.isNull(pair.value) and (selected and "on_hover" or "on_surface_variant") or (selected and "on_hover" or "on_surface"),
+      }),
     })
   end
   return ui.column({ key = "detail", flexGrow = 1, gap = 2 }, {
     head,
-    ui.separator({ key = "drule", color = "outline/0.35" }),
-    ui.scroll({ key = "detail-scroll", flexGrow = 1 }, nodes),
+    ui.separator({ key = "drule", color = "outline/0.5" }),
+    ui.scroll({ key = "detail-scroll", flexGrow = 1, gap = 1 }, nodes),
   })
 end
 
@@ -1061,7 +1081,7 @@ local function formField(key, label, value, placeholder, password, onChange, gro
     colProps.flexGrow = 1
   end
   return ui.column(colProps, {
-    ui.label({ key = "l-" .. key, text = label, fontSize = 11, color = "on_surface/0.7" }),
+    ui.label({ key = "l-" .. key, text = label, fontSize = 11, color = "on_surface_variant" }),
     ui.input({
       key = "f-" .. tostring(S.formToken) .. "-" .. key,
       value = value,
@@ -1096,7 +1116,7 @@ local function formBody(availW)
 
   local fields = {
     ui.column({ key = "ff-driver", gap = 3 }, {
-      ui.label({ key = "l-driver", text = "Driver", fontSize = 11, color = "on_surface/0.7" }),
+      ui.label({ key = "l-driver", text = "Driver", fontSize = 11, color = "on_surface_variant" }),
       ui.row({ key = "drivers", gap = 6 }, {
         driverBtn("mysql", "MySQL"),
         driverBtn("postgres", "PostgreSQL"),
@@ -1253,7 +1273,7 @@ local function footer(availW)
     left = (left or "") .. "  ·  " .. S.lastSql
   end
   return ui.row({ key = "footer", align = "center", gap = 8 }, {
-    ui.label({ key = "left", text = left or "", fontSize = 11, color = "on_surface/0.6", flexGrow = 1, maxLines = 1 }),
+    ui.label({ key = "left", text = left or "", fontSize = 11, color = "on_surface_variant", flexGrow = 1, maxLines = 1 }),
     ui.row({ key = "btns", gap = 6 }, buttons),
   })
 end
@@ -1300,7 +1320,7 @@ render = function()
   if n ~= nil then
     children[#children + 1] = n
   end
-  children[#children + 1] = ui.separator({ key = "sep", color = "outline/0.4" })
+  children[#children + 1] = ui.separator({ key = "sep", color = "outline/0.5" })
 
   if S.view == "profiles" or S.view == "databases" or S.view == "tables" then
     children[#children + 1] = filterInput(inner)

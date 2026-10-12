@@ -31,11 +31,18 @@ end
 
 -- Column widths in pixels, fitted to the available width so wide tables clip
 -- gracefully instead of overflowing (ui.scroll only scrolls vertically).
-function M.fitWidths(cols, rows, avail, charW)
+-- `gap` is the per-cell gap the row renders with, reserved up front so the
+-- computed widths plus gaps still fit the available width.
+function M.fitWidths(cols, rows, avail, charW, gap)
   charW = charW or 7
+  gap = gap or 0
   local n = #cols
   if n == 0 then
     return {}
+  end
+  local usable = avail - gap * (n - 1)
+  if usable < 1 then
+    usable = 1
   end
   local mins, maxs = {}, {}
   for c = 1, n do
@@ -58,12 +65,12 @@ function M.fitWidths(cols, rows, avail, charW)
   for c = 1, n do
     total = total + maxs[c]
   end
-  if total <= avail then
+  if total <= usable then
     return maxs
   end
 
   local widths = {}
-  local factor = avail / total
+  local factor = usable / total
   for c = 1, n do
     local w = math.floor(maxs[c] * factor)
     if w < mins[c] then
