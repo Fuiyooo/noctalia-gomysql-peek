@@ -1,0 +1,8 @@
+{
+  "settings.engine_path.label": "Engine binary",
+  "settings.engine_path.description": "Path to the dbpeek-engine executable built by install.sh.",
+  "settings.connections_file.label": "Connections file",
+  "settings.connections_file.description": "Where connection profiles are stored. Leave empty to use this plugin's data directory.",
+  "settings.page_size.label": "Rows per page",
+  "settings.page_size.description": "How many rows to fetch per page in the table view."
+}

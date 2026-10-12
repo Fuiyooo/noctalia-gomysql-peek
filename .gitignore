@@ -1,3 +1,4 @@
-engine/omysql-engine
+omarchy/engine/omysql-engine
+dbpeek/engine/dbpeek-engine
 *.bak
 *.bak.*

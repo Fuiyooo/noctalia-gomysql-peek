@@ -1,0 +1,12 @@
+# Noctalia plugin index for this source repository.
+[[plugin]]
+id          = "fuiyooo/dbpeek"
+name        = "DB Peek"
+version     = "0.1.0"
+author      = "Fuiyooo"
+license     = "MIT"
+icon        = "database"
+description = "Fullscreen database browser for MySQL, PostgreSQL and SQLite: browse databases, tables and rows, search every column, and run read-only SQL."
+deprecated  = false
+plugin_api  = 30
+tags        = ["Database", "Panel", "Bar", "Development"]
