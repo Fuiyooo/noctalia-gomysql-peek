@@ -560,6 +560,32 @@ local function deleteSelected()
   end)
 end
 
+-- Creates a SQLite connection pointing at the bundled demo database.
+local function addDemoConnection()
+  if S.busy then
+    return
+  end
+  local dir = noctalia.pluginDir()
+  if dir == nil then
+    S.error = "plugin directory unavailable"
+    render()
+    return
+  end
+  local profile = { name = "demo", driver = "sqlite", host = dir .. "/demo/demo.db" }
+  S.busy = true
+  S.error = ""
+  render()
+  engine.saveProfile(profile, function(ok, data)
+    S.busy = false
+    if not ok then
+      S.error = tostring(data)
+      render()
+      return
+    end
+    fetchProfiles()
+  end)
+end
+
 -- ── keyboard ────────────────────────────────────────────────────────────────
 function onKey(chord, pressed)
   if not pressed then
@@ -772,6 +798,20 @@ end
 local function listBody(availW, sub)
   local itemsList = items()
   if #itemsList == 0 then
+    if S.view == "profiles" and not S.busy then
+      return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center", gap = 10 }, {
+        ui.label({ key = "e1", text = "No connections yet", fontSize = 13, color = "on_surface/0.7" }),
+        ui.button({
+          key = "demo",
+          text = "Add demo connection (SQLite)",
+          variant = "primary",
+          onClick = function()
+            addDemoConnection()
+          end,
+        }),
+        ui.label({ key = "e2", text = "or press n to add your own", fontSize = 11, color = "on_surface/0.5" }),
+      })
+    end
     return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center" }, {
       ui.label({ key = "e", text = S.busy and "loading…" or "No entries", fontSize = 13, color = "on_surface/0.5" }),
     })
@@ -920,26 +960,31 @@ local function detailBody(availW)
   })
 end
 
+local function formField(key, label, value, placeholder, password, onChange, grow)
+  local colProps = { key = "ff-" .. key, gap = 3 }
+  if grow then
+    colProps.flexGrow = 1
+  end
+  return ui.column(colProps, {
+    ui.label({ key = "l-" .. key, text = label, fontSize = 11, color = "on_surface/0.7" }),
+    ui.input({
+      key = "f-" .. tostring(S.formToken) .. "-" .. key,
+      value = value,
+      placeholder = placeholder,
+      fontSize = 13,
+      password = password == true,
+      onChange = onChange,
+    }),
+  })
+end
+
 local function formBody(availW)
   local f = S.form
   if f == nil then
     return ui.column({ key = "empty", flexGrow = 1 })
   end
-  local W = math.min(availW, 460)
-  local function field(key, value, placeholder, password, onChange)
-    return ui.input({
-      key = "f-" .. tostring(S.formToken) .. "-" .. key,
-      value = value,
-      placeholder = placeholder,
-      fontSize = 13,
-      width = W,
-      password = password == true,
-      onChange = onChange,
-    })
-  end
+  local W = math.min(availW, 560)
 
-  local rows = {}
-  -- driver picker
   local function driverBtn(driver, label)
     return ui.button({
       key = "drv-" .. driver,
@@ -953,31 +998,56 @@ local function formBody(availW)
       end,
     })
   end
-  rows[#rows + 1] = ui.row({ key = "drivers", gap = 6 }, {
-    driverBtn("mysql", "MySQL"),
-    driverBtn("postgres", "PostgreSQL"),
-    driverBtn("sqlite", "SQLite"),
-  })
 
-  rows[#rows + 1] = field("name", f.name, "Name *", false, function(v) f.name = v end)
-  rows[#rows + 1] = field("host", f.host, f.driver == "sqlite" and "SQLite file path *" or "Host *  e.g. 127.0.0.1", false, function(v) f.host = v end)
+  local fields = {
+    ui.column({ key = "ff-driver", gap = 3 }, {
+      ui.label({ key = "l-driver", text = "Driver", fontSize = 11, color = "on_surface/0.7" }),
+      ui.row({ key = "drivers", gap = 6 }, {
+        driverBtn("mysql", "MySQL"),
+        driverBtn("postgres", "PostgreSQL"),
+        driverBtn("sqlite", "SQLite"),
+      }),
+    }),
+  }
+
+  fields[#fields + 1] = formField("name", "Name", f.name, "e.g. local", false, function(v) f.name = v end)
+  fields[#fields + 1] = formField(
+    "host",
+    f.driver == "sqlite" and "SQLite file" or "Host",
+    f.host,
+    f.driver == "sqlite" and "/path/to/db.sqlite" or "127.0.0.1",
+    false,
+    function(v) f.host = v end
+  )
+
   if f.driver ~= "sqlite" then
-    rows[#rows + 1] = field("port", f.port, f.driver == "postgres" and "Port (5432)" or "Port (3306)", false, function(v) f.port = v end)
-    rows[#rows + 1] = field("user", f.user, "User", false, function(v) f.user = v end)
-    rows[#rows + 1] = field("password", f.password, "Password", true, function(v) f.password = v end)
+    fields[#fields + 1] = ui.row({ key = "row-port-user", gap = 10, align = "start" }, {
+      formField("port", "Port", f.port, f.driver == "postgres" and "5432" or "3306", false, function(v) f.port = v end, true),
+      formField("user", "User", f.user, "user", false, function(v) f.user = v end, true),
+    })
+    fields[#fields + 1] = formField("password", "Password", f.password, "••••••", true, function(v) f.password = v end)
   end
-  rows[#rows + 1] = field("database", f.database, "Default database (optional)", false, function(v) f.database = v end)
+  fields[#fields + 1] = formField("database", "Default database (optional)", f.database, "", false, function(v) f.database = v end)
 
   if S.formError ~= "" then
-    rows[#rows + 1] = ui.label({ key = "ferr", text = S.formError, fontSize = 12, color = "error", maxLines = 2 })
+    fields[#fields + 1] = ui.label({ key = "ferr", text = S.formError, fontSize = 12, color = "error", maxLines = 2 })
   end
-  rows[#rows + 1] = ui.row({ key = "factions", gap = 8, justify = "end" }, {
+  fields[#fields + 1] = ui.row({ key = "factions", gap = 8, justify = "end" }, {
     ui.button({ key = "cancel", text = "Cancel", variant = "outline", onClick = function() goBack() end }),
     ui.button({ key = "save", text = "Save", variant = "primary", onClick = function() saveForm() end }),
   })
 
-  return ui.column({ key = "form", flexGrow = 1, align = "center", justify = "center" }, {
-    ui.column({ key = "formCard", gap = 8, width = W, padding = 14, radius = 12, fill = "surface/0.4", border = "outline/0.4", borderWidth = 1 }, rows),
+  return ui.column({ key = "form", flexGrow = 1, gap = 10, align = "start" }, {
+    ui.label({
+      key = "ftitle",
+      text = f.name ~= "" and ("Edit connection — " .. f.name) or "New connection",
+      fontSize = 15,
+      fontWeight = "bold",
+      color = "on_surface",
+    }),
+    ui.scroll({ key = "formscroll", flexGrow = 1 }, {
+      ui.column({ key = "formcol", gap = 10, width = W }, fields),
+    }),
   })
 end
 
@@ -1096,14 +1166,16 @@ local function body(availW)
   return listBody(availW)
 end
 
+-- Fixed panel size (mirrors plugin.toml); the host still clamps it to the output.
+local PANEL_W = 1180
+local PANEL_PAD = 18
+
 render = function()
   if not S.open then
     return
   end
-  local sw, sh = screen()
-  local cw = math.min(sw - 72, 1240)
-  local ch = math.min(sh - 72, 840)
-  local inner = cw - 44
+  local sw = screen()
+  local inner = math.max(500, math.min(PANEL_W, sw) - 2 * PANEL_PAD)
 
   local children = { header() }
   local n = notice()
@@ -1124,25 +1196,7 @@ render = function()
   children[#children + 1] = confirmBar()
   children[#children + 1] = footer(inner)
 
-  local card = ui.column({
-    key = "card",
-    width = cw,
-    height = ch,
-    fill = "surface_variant/0.96",
-    radius = 14,
-    border = "outline/0.5",
-    borderWidth = 1,
-    padding = 18,
-    gap = 10,
-  }, children)
-
-  panel.render(ui.column({
-    key = "scrim",
-    flexGrow = 1,
-    align = "center",
-    justify = "center",
-    fill = "surface/0.55",
-  }, { card }))
+  panel.render(ui.column({ key = "root", flexGrow = 1, padding = PANEL_PAD, gap = 10 }, children))
 end
 
 -- ── lifecycle ───────────────────────────────────────────────────────────────

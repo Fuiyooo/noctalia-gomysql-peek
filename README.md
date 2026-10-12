@@ -1,6 +1,6 @@
 # DB Peek — Noctalia plugin
 
-A fullscreen database browser for [Noctalia](https://noctalia.dev) v5: pick a
+A database browser overlay for [Noctalia](https://noctalia.dev) v5: pick a
 connection, browse databases, tables and rows, filter/search every column, and
 run read-only SQL — all from a keyboard-first overlay.
 
@@ -23,7 +23,7 @@ declarative `ui.*` panel; the data layer is a small headless **Go** engine
 ## Layout
 
 ```
-dbpeek/                 the Noctalia plugin (plugin.toml + .luau + engine)
+dbpeek/                 the Noctalia plugin (plugin.toml + .luau + engine + demo/)
 omarchy/                the original Omarchy/Quickshell plugin (kept for reference)
 catalog.toml            plugin index for the Noctalia source
 ```
@@ -48,15 +48,30 @@ Then open the panel:
 noctalia msg panel-toggle fuiyooo/dbpeek:peek
 ```
 
-Bind it to a key in your Noctalia config if you like:
+Bind it to a key from your **compositor** (Noctalia's own `[keybinds]` only
+handles shell actions and rejects `Super`). On Hyprland, add to your keybinds —
+in this example **Super+Ctrl+M**:
 
-```toml
-[keybinds]
-"Super+M" = "noctalia msg panel-toggle fuiyooo/dbpeek:peek"
+```conf
+bind = SUPER CTRL, M, exec, noctalia msg panel-toggle fuiyooo/dbpeek:peek
+```
+
+If your Hyprland config uses the Lua DSL (`hl.bind`):
+
+```lua
+hl.bind(mainMod .. " + CTRL + M", hl.dsp.exec_cmd("noctalia msg panel-toggle fuiyooo/dbpeek:peek"))
 ```
 
 The **DB Peek** bar widget (a database glyph) can be added from
 Settings → Bar; clicking it toggles the panel.
+
+## Demo database
+
+A ready-to-use SQLite dataset ships in `dbpeek/demo/` (`demo.db`, rebuilt with
+`sqlite3 demo.db < dbpeek/demo/schema.sql`) with `departments`, `employees`
+(60 rows) and `products`. With no connections configured, the overlay shows an
+**Add demo connection** button that creates a `demo` SQLite connection pointing
+at it — one click and you can test the whole flow.
 
 ## Keys
 
@@ -139,6 +154,7 @@ dbpeek/widget.luau      the bar widget + IPC entry point
 dbpeek/lib/engine.luau  runAsync wrapper around dbpeek-engine
 dbpeek/lib/format.luau  table formatting helpers
 dbpeek/engine/          the Go data engine
+dbpeek/demo/            the bundled SQLite demo dataset
 ```
 
 ## License

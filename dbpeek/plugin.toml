@@ -5,7 +5,7 @@ plugin_api  = 30
 author      = "Fuiyooo"
 license     = "MIT"
 icon        = "database"
-description = "Fullscreen database browser: pick a connection, browse databases, tables and rows, search every column, and run read-only SQL — MySQL, PostgreSQL and SQLite, powered by a small Go engine."
+description = "Database browser overlay: pick a connection, browse databases, tables and rows, search every column, and run read-only SQL — MySQL, PostgreSQL and SQLite, powered by a small Go engine."
 repository  = "https://github.com/Fuiyooo/noctalia-gomysql-peek"
 tags        = ["Database", "Panel", "Bar", "Development"]
 
@@ -35,8 +35,8 @@ max             = 500
 [[panel]]
 id                      = "peek"
 entry                   = "panel.luau"
-width                   = "fill"
-height                  = "fill"
+width                   = 1180
+height                  = 760
 placement               = "floating"
 position                = "center"
 layer                   = "overlay"
