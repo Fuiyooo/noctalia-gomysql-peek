@@ -805,9 +805,14 @@ func cmdRows(fs *flag.FlagSet) {
 		likes := make([]string, len(cols))
 		args = make([]any, len(cols))
 		for i, c := range cols {
-			likes[i] = ident(driver, c) + " LIKE " + ph(driver, i+1)
 			if driver == "postgres" {
-				likes[i] = ident(driver, c) + " ILIKE " + ph(driver, i+1)
+				// Postgres has no `integer ILIKE text` operator, so cast every
+				// column to text first. Without this, searching any table with
+				// a non-text column fails with
+				// "operator does not exist: integer ~~* unknown".
+				likes[i] = "CAST(" + ident(driver, c) + " AS TEXT) ILIKE " + ph(driver, i+1)
+			} else {
+				likes[i] = ident(driver, c) + " LIKE " + ph(driver, i+1)
 			}
 			args[i] = "%" + *search + "%"
 		}
