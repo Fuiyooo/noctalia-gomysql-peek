@@ -1,6 +1,6 @@
 id          = "fuiyooo/dbpeek"
 name        = "DB Peek"
-version     = "0.9.4"
+version     = "0.9.5"
 plugin_api  = 30
 author      = "Fuiyooo"
 license     = "MIT"

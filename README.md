@@ -103,9 +103,13 @@ matching port and database `dbpeek_demo`.
 | `Ctrl+B` | Back one level (also closes the current input / cancels the delete prompt) |
 | `n` / `e` / `d` | New / edit / delete a connection (connections view) |
 | `←` / `→` | In the connection form: MySQL / PostgreSQL / SQLite |
+| `↑` / `↓`, `→` | In the SQL box: move through autosuggestions, then insert the highlighted one |
 
 The overlay is **keyboard-only** — no mouse. On-screen chips only show the keys
 for the current actions.
+
+The SQL box **autosuggests**: SQL keywords plus table/column names parsed from
+the bundled demo SQL files (`dbpeek/demo/*.sql`).
 
 > **Esc** is owned by Noctalia and closes the panel. Back navigation uses
 > **Ctrl+B**, which still reaches the plugin while a text field is focused.

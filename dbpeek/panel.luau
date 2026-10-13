@@ -55,6 +55,7 @@ local S = {
   inputMode = "",             -- "" | search | where | sql | filter
   inputToken = 0,
   inputText = "",
+  suggest = {}, suggestSel = 1,
   searchTerm = "", whereClause = "",
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
@@ -415,6 +416,125 @@ local function nextPage()
   end
 end
 
+-- ── SQL autosuggestion ──────────────────────────────────────────────────────
+local SQL_KEYWORDS = {
+  "SELECT", "FROM", "WHERE", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET",
+  "JOIN", "LEFT JOIN", "INNER JOIN", "RIGHT JOIN", "ON", "AS", "AND", "OR", "NOT",
+  "IN", "IS NULL", "IS NOT NULL", "LIKE", "ILIKE", "DISTINCT", "CASE", "WHEN",
+  "THEN", "ELSE", "END", "COUNT(*)", "SUM(", "AVG(", "MIN(", "MAX(", "DESC", "ASC",
+  "UNION", "UNION ALL", "SHOW", "DESCRIBE", "EXPLAIN", "WITH", "VALUES",
+}
+
+local SQL_TYPES = {
+  TEXT = true, INT = true, INTEGER = true, VARCHAR = true, CHAR = true,
+  NUMERIC = true, DECIMAL = true, SERIAL = true, BIGSERIAL = true, BIGINT = true,
+  SMALLINT = true, DATE = true, TIMESTAMP = true, BOOLEAN = true, REAL = true,
+  DOUBLE = true, UUID = true,
+}
+
+local DEMO_VOCAB = nil
+
+local function currentToken(text)
+  return string.match(text or "", "([%w_]*)$") or ""
+end
+
+local function parseDemoVocab(text)
+  local out = {}
+  for line in string.gmatch(text or "", "[^\n]+") do
+    local t = string.gsub(line, "^%s+", "")
+    local tbl = string.match(t, "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+([%a_][%w_]*)")
+    if tbl == nil then
+      tbl = string.match(
+        t,
+        "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+[Ii][Ff]%s+[Nn][Oo][Tt]%s+[Ee][Xx][Ii][Ss][Tt][Ss]%s+([%a_][%w_]*)"
+      )
+    end
+    if tbl ~= nil then
+      out[tbl] = true
+    else
+      local col, ty = string.match(t, "^([%a_][%w_]*)%s+([%a]+)")
+      if col ~= nil and ty ~= nil and SQL_TYPES[string.upper(ty)] ~= nil then
+        out[col] = true
+      end
+    end
+  end
+  return out
+end
+
+-- Vocabulary for suggestions: table/column names parsed from the bundled demo
+-- SQL files, plus SQL keywords. Loaded once.
+local function ensureDemoVocab()
+  if DEMO_VOCAB ~= nil then
+    return
+  end
+  DEMO_VOCAB = {}
+  local dir = noctalia.pluginDir()
+  if dir == nil then
+    return
+  end
+  for _, file in ipairs({ "/demo/schema.sql", "/demo/mysql.sql", "/demo/postgres.sql" }) do
+    local content = noctalia.readFile(dir .. file)
+    if content ~= nil then
+      for name in pairs(parseDemoVocab(content)) do
+        DEMO_VOCAB[name] = true
+      end
+    end
+  end
+end
+
+local function computeSuggestions()
+  local tok = currentToken(S.inputText)
+  if tok == "" then
+    S.suggest = {}
+    S.suggestSel = 1
+    return
+  end
+  ensureDemoVocab()
+  local low = string.lower(tok)
+  local seen, out = {}, {}
+  local function add(v)
+    if v ~= nil and v ~= "" and seen[v] == nil then
+      seen[v] = true
+      out[#out + 1] = v
+    end
+  end
+  for _, k in ipairs(SQL_KEYWORDS) do
+    if string.sub(string.lower(k), 1, #low) == low then
+      add(k)
+    end
+  end
+  local names = {}
+  for name in pairs(DEMO_VOCAB) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if string.sub(string.lower(name), 1, #low) == low then
+      add(name)
+    end
+  end
+  local capped = {}
+  for i = 1, math.min(#out, 6) do
+    capped[i] = out[i]
+  end
+  S.suggest = capped
+  if S.suggestSel > #capped then
+    S.suggestSel = 1
+  end
+  if S.suggestSel < 1 then
+    S.suggestSel = 1
+  end
+end
+
+local function insertSuggestion(value)
+  local text = S.inputText or ""
+  local n = #currentToken(text)
+  S.inputText = string.sub(text, 1, #text - n) .. value
+  S.inputToken = S.inputToken + 1
+  computeSuggestions()
+  render()
+end
+
 local function openInput(mode)
   if mode == "filter" then
     if S.view == "rows" or S.view == "form" then
@@ -436,6 +556,9 @@ local function openInput(mode)
     S.inputText = S.whereClause
   elseif mode == "sql" then
     S.inputText = S.lastSql or ""
+    S.suggest = {}
+    S.suggestSel = 1
+    ensureDemoVocab()
   elseif mode == "filter" then
     S.inputText = S.filter
   end
@@ -444,6 +567,7 @@ end
 
 local function closeInput()
   S.inputMode = ""
+  S.suggest = {}
   render()
 end
 
@@ -480,6 +604,7 @@ runSql = function(text)
       S.sel = 1
       S.detail = false
       S.inputMode = ""
+      S.suggest = {}
       S.status = ""
     end
   end)
@@ -672,6 +797,17 @@ function onKey(chord, pressed)
   -- While a text input is open the host owns the keys it consumes (typing and
   -- Backspace).
   if S.inputMode ~= "" then
+    if S.inputMode == "sql" and #S.suggest > 0 then
+      if chord == "Up" then
+        S.suggestSel = math.max(1, S.suggestSel - 1)
+        render()
+      elseif chord == "Down" then
+        S.suggestSel = math.min(#S.suggest, S.suggestSel + 1)
+        render()
+      elseif chord == "Right" then
+        insertSuggestion(S.suggest[S.suggestSel])
+      end
+    end
     return
   end
   if S.view == "form" then
@@ -868,7 +1004,7 @@ local function rowFill(idx)
     return "primary/0.30"
   end
   if idx % 2 == 0 then
-    return "primary/0.05"
+    return "primary/0.10"
   end
   return "primary/0"
 end
@@ -1161,6 +1297,9 @@ local function inputBar(availW)
           S.filter = v
           S.sel = 1
           render()
+        elseif S.inputMode == "sql" then
+          computeSuggestions()
+          render()
         end
       end,
       onSubmit = function()
@@ -1177,6 +1316,28 @@ local function inputBar(availW)
     }),
     keyHint("ctrl+b back"),
   })
+
+  if S.inputMode == "sql" and #S.suggest > 0 then
+    local chips = {}
+    for i, s in ipairs(S.suggest) do
+      local selected = i == S.suggestSel
+      chips[#chips + 1] = ui.column({
+        key = "sg-" .. s,
+        padding = 6,
+        radius = 6,
+        fill = selected and "primary/0.25" or "on_surface/0.06",
+      }, {
+        ui.label({
+          key = "sgl-" .. s, text = s, fontSize = 11, maxLines = 1,
+          color = selected and "on_surface" or "on_surface_variant",
+        }),
+      })
+    end
+    return ui.column({ key = "inputwrap", gap = 6 }, {
+      row,
+      ui.row({ key = "suggest", gap = 6, align = "center" }, chips),
+    })
+  end
 
   return ui.column({ key = "inputwrap", gap = 6 }, { row })
 end
