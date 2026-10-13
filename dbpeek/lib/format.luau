@@ -66,7 +66,14 @@ function M.fitWidths(cols, rows, avail, charW, gap)
     total = total + maxs[c]
   end
   if total <= usable then
-    return maxs
+    -- Content is narrower than the available width: grow every column so the
+    -- table spans the full row instead of leaving an empty gap on the right.
+    local factor = usable / total
+    local widths = {}
+    for c = 1, n do
+      widths[c] = math.floor(maxs[c] * factor)
+    end
+    return widths
   end
 
   local widths = {}

@@ -936,14 +936,14 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Row background priority: selected accent > hover > zebra. `zebra` is only
--- used by the table/detail views, not the plain lists.
+-- Row background priority: selected accent > hover (theme `hover`, like the
+-- bar) > zebra. `zebra` is only used by the table/detail views, not lists.
 local function rowFill(idx, zebra)
   if idx == S.sel then
     return "primary/0.30"
   end
   if idx == S.hover then
-    return "on_surface/0.12"
+    return "hover"
   end
   if zebra and idx % 2 == 0 then
     return "on_surface/0.06"
