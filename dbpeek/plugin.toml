@@ -1,6 +1,6 @@
 id          = "fuiyooo/dbpeek"
 name        = "DB Peek"
-version     = "0.9.3"
+version     = "0.9.4"
 plugin_api  = 30
 author      = "Fuiyooo"
 license     = "MIT"
@@ -45,7 +45,7 @@ dismiss_on_outside_click = true
 capture_keys = [
   "Up", "Down", "Left", "Right",
   "Prior", "Next", "Home", "End",
-  "Return", "Escape",
+  "Return", "ctrl+b",
   "n", "e", "d", "q", "w", "r", "y", "slash", "shift+R",
 ]
 

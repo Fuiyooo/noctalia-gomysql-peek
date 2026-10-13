@@ -6,7 +6,7 @@
 --
 -- Keyboard is delivered through the panel's capture_keys + onKey; every list
 -- row is also clickable. Escape is owned by the host (it dismisses the panel),
--- so "back" is double-Escape (the global Cancel keybind was moved to ctrl+q).
+-- so "back" is Ctrl+B (Escape is owned by the host and closes the panel).
 
 local format = require("./lib/format.luau")
 local engine = require("./lib/engine.luau")
@@ -59,7 +59,6 @@ local S = {
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
   confirm = nil,
-  escArmedAt = 0, escWarn = false,
   error = "", status = "", busy = false,
 }
 
@@ -648,10 +647,9 @@ function onKey(chord, pressed)
     return
   end
 
-  -- Escape is ours (the global Cancel keybind was moved to ctrl+q). First press
-  -- arms it, a second press within the window goes back; otherwise it closes an
-  -- open input / cancels the confirm prompt.
-  if chord == "Escape" then
+  -- Back is Ctrl+B (a modifier chord, so it reaches us even when a text input
+  -- is focused). Escape is left to the shell (it closes the panel).
+  if chord == "ctrl+b" then
     if S.confirm ~= nil then
       S.confirm = nil
       render()
@@ -661,22 +659,9 @@ function onKey(chord, pressed)
       closeInput()
       return
     end
-    local now = noctalia.nowMs()
-    if now - S.escArmedAt < 3000 then
-      S.escArmedAt = 0
-      S.escWarn = false
-      goBack()
-    else
-      S.escArmedAt = now
-      S.escWarn = true
-      render()
-    end
+    goBack()
     return
   end
-
-  -- Any other key disarms the "esc again" prompt.
-  S.escWarn = false
-  S.escArmedAt = 0
 
   if S.confirm ~= nil then
     if chord == "Return" then
@@ -685,7 +670,7 @@ function onKey(chord, pressed)
     return
   end
   -- While a text input is open the host owns the keys it consumes (typing and
-  -- Backspace); Escape closes it (handled above).
+  -- Backspace).
   if S.inputMode ~= "" then
     return
   end
@@ -820,16 +805,16 @@ end
 
 local function hint()
   if S.view == "profiles" then
-    return "↑ ↓ move · ⏎ open · n new · e edit · d delete · / filter · esc esc back"
+    return "↑ ↓ move · ⏎ open · n new · e edit · d delete · / filter · ctrl+b back"
   elseif S.view == "databases" or S.view == "tables" then
-    return "↑ ↓ move · ⏎ open · / filter · r refresh · esc esc back"
+    return "↑ ↓ move · ⏎ open · / filter · r refresh · ctrl+b back"
   elseif S.view == "rows" then
     if S.detail then
-      return "↑ ↓ field · ← → row · y copy · ⏎ back to data · esc esc back"
+      return "↑ ↓ field · ← → row · y copy · ⏎ back to data · ctrl+b back"
     end
-    return "↑ ↓ row · ⏎ detail · / search · w where · q sql · ← → page · r refresh · esc esc back"
+    return "↑ ↓ row · ⏎ detail · / search · w where · q sql · ← → page · r refresh · ctrl+b back"
   elseif S.view == "form" then
-    return "⏎ save · ← → driver · esc esc cancel"
+    return "⏎ save · ← → driver · ctrl+b cancel"
   end
   return ""
 end
@@ -843,9 +828,9 @@ local function header()
     }),
     ui.label({
       key = "meta",
-      text = S.escWarn and "press esc again to go back" or (S.busy and "loading…" or hint()),
+      text = S.busy and "loading…" or hint(),
       fontSize = 11,
-      color = S.escWarn and "primary" or "on_surface_variant",
+      color = "on_surface_variant",
       maxLines = 1,
     }),
   })
@@ -875,12 +860,17 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Selected row/-item highlight (accent).
+-- Row background: selected accent, zebra stripes in a faint primary tint, and
+-- an explicit transparent fill otherwise (the reconciler does not clear a fill
+-- prop that disappears, so it must always be set).
 local function rowFill(idx)
   if idx == S.sel then
     return "primary/0.30"
   end
-  return nil
+  if idx % 2 == 0 then
+    return "primary/0.05"
+  end
+  return "primary/0"
 end
 
 -- A small, non-interactive chip that shows the key(s) for an action.
@@ -934,10 +924,9 @@ local function listBody(availW, sub)
       radius = 6,
       paddingH = 8,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
+    -- Always set fill so a previously selected row is cleared (the reconciler
+    -- does not reset a fill prop that disappears).
+    props.fill = rowFill(idx)
     local nameW = math.floor(availW * 0.34)
     local detailW = math.max(80, availW - nameW - 100)
     local cells = {
@@ -1006,10 +995,9 @@ local function tableBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
+    -- Always set fill so a previously selected row is cleared (the reconciler
+    -- does not reset a fill prop that disappears).
+    props.fill = rowFill(idx)
     nodes[#nodes + 1] = ui.row(props, cells)
   end
   return ui.column({ key = "table", flexGrow = 1, gap = 2 }, {
@@ -1039,10 +1027,9 @@ local function detailBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
+    -- Always set fill so a previously selected row is cleared (the reconciler
+    -- does not reset a fill prop that disappears).
+    props.fill = rowFill(idx)
     nodes[#nodes + 1] = ui.row(props, {
       cell("f", fw, ui.label({
         key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw, color = "on_surface",
@@ -1188,7 +1175,7 @@ local function inputBar(availW)
         end
       end,
     }),
-    keyHint("esc esc back"),
+    keyHint("ctrl+b back"),
   })
 
   return ui.column({ key = "inputwrap", gap = 6 }, { row })
@@ -1237,7 +1224,7 @@ local function footer(availW)
   if sel ~= "" then
     left = "▸ " .. sel .. (left ~= nil and left ~= "" and ("    " .. left) or "")
   end
-  chips[#chips + 1] = keyHint("esc esc back")
+  chips[#chips + 1] = keyHint("ctrl+b back")
   if S.isQuery and S.lastSql ~= "" then
     left = (left or "") .. "  ·  " .. S.lastSql
   end
@@ -1285,16 +1272,6 @@ render = function()
   local n = notice()
   if n ~= nil then
     children[#children + 1] = n
-  end
-  if S.escWarn then
-    children[#children + 1] = ui.column({
-      key = "escwarn",
-      fill = "primary/0.18",
-      radius = 6,
-      padding = 6,
-    }, {
-      ui.label({ key = "escwarnt", text = "press Esc again to go back", fontSize = 12, color = "primary", maxLines = 1 }),
-    })
   end
   children[#children + 1] = ui.separator({ key = "sep", color = "outline/0.5" })
 
@@ -1347,8 +1324,6 @@ function onOpen(_context)
   S.confirm = nil
   S.inputMode = ""
   S.detail = false
-  S.escWarn = false
-  S.escArmedAt = 0
   if jumpToSummon() then
     return
   end

@@ -100,22 +100,15 @@ matching port and database `dbpeek_demo`.
 | `r` | Refresh what you are viewing |
 | ⇧R | Reload the table fresh (drops query + search + where) |
 | `y` | In the field-value view: copy the focused value to the clipboard |
-| Esc Esc | Back one level (the global Cancel keybind was moved to `Ctrl+Q`) |
-| Esc | Close the current input / cancel the delete prompt |
+| `Ctrl+B` | Back one level (also closes the current input / cancels the delete prompt) |
 | `n` / `e` / `d` | New / edit / delete a connection (connections view) |
 | `←` / `→` | In the connection form: MySQL / PostgreSQL / SQLite |
 
 The overlay is **keyboard-only** — no mouse. On-screen chips only show the keys
 for the current actions.
 
-> **Esc note:** Noctalia reserves `Escape` for its global Cancel action, so the
-> plugin can't use it by default. To make **Esc Esc** work, this repo's README
-> setup moves Cancel to `Ctrl+Q` (`[keybinds] cancel = ["ctrl+q"]` in
-> `~/.config/noctalia/config.toml`). That is global: use `Ctrl+Q` to close other
-> shell panels too.
-
-> Escape is owned by Noctalia and closes the panel; use Backspace or a row click
-> to step back instead.
+> **Esc** is owned by Noctalia and closes the panel. Back navigation uses
+> **Ctrl+B**, which still reaches the plugin while a text field is focused.
 
 ## Connection profiles
 
