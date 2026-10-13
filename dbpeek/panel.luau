@@ -50,7 +50,7 @@ local S = {
   profiles = {}, databases = {}, tables = {},
   active = nil, database = "", table = "",
   columns = {}, rows = {}, total = 0, offset = 0, limit = PAGE, truncated = false,
-  sel = 1, detail = false, detailPairs = {}, detailRow = 1,
+  sel = 1, detail = false, detailPairs = {}, detailRow = 1, hover = 0,
   filter = "",
   inputMode = "",             -- "" | search | where | sql
   inputToken = 0,
@@ -89,6 +89,7 @@ local function fetchProfiles(cb)
   req({ "profiles" }, function(data)
     if data then
       S.profiles = data.profiles or {}
+      S.hover = 0
       if S.sel > #S.profiles then
         S.sel = 1
       end
@@ -103,6 +104,7 @@ local function fetchDatabases()
   req({ "dbs", "--profile", S.active.name }, function(data)
     if data then
       S.databases = data.databases or {}
+      S.hover = 0
       if S.sel > #S.databases then
         S.sel = 1
       end
@@ -114,6 +116,7 @@ local function fetchTables()
   req({ "tables", "--profile", S.active.name, "--db", S.database }, function(data)
     if data then
       S.tables = data.tables or {}
+      S.hover = 0
       if S.sel > #S.tables then
         S.sel = 1
       end
@@ -175,6 +178,7 @@ local function fetchRows()
       S.total = data.total or 0
       S.offset = data.offset or 0
       S.truncated = data.truncated == true
+      S.hover = 0
       if S.sel > #S.rows then
         S.sel = 1
       end
@@ -196,6 +200,7 @@ end
 
 local function openProfile(profile)
   S.active = profile
+  S.hover = 0
   S.database = profile.database or ""
   S.table = ""
   S.filter = ""
@@ -207,6 +212,7 @@ end
 
 local function openDatabase(db)
   S.database = db
+  S.hover = 0
   S.table = ""
   S.filter = ""
   S.sel = 1
@@ -217,6 +223,7 @@ end
 
 local function openTable(t)
   S.table = t
+  S.hover = 0
   S.filter = ""
   S.sel = 1
   S.detail = false
@@ -282,6 +289,7 @@ local function activate()
   if S.view == "rows" then
     if S.detail then
       S.detail = false
+      S.hover = 0
     else
       S.detailRow = S.sel
       buildDetail()
@@ -309,6 +317,7 @@ local function goBack()
   if S.busy then
     return
   end
+  S.hover = 0
   if S.inputMode ~= "" then
     S.inputMode = ""
     render()
@@ -927,6 +936,33 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
+-- Row background priority: selected accent > hover > zebra. `zebra` is only
+-- used by the table/detail views, not the plain lists.
+local function rowFill(idx, zebra)
+  if idx == S.sel then
+    return "primary/0.30"
+  end
+  if idx == S.hover then
+    return "on_surface/0.12"
+  end
+  if zebra and idx % 2 == 0 then
+    return "on_surface/0.06"
+  end
+  return nil
+end
+
+-- Hover must not move the selection; it only tracks which row is under the
+-- pointer, and re-renders only when that changes.
+local function hoverHandler(idx)
+  return function(state)
+    local h = state == "true" and idx or 0
+    if h ~= S.hover then
+      S.hover = h
+      render()
+    end
+  end
+end
+
 local function listBody(availW, sub)
   local itemsList = items()
   if #itemsList == 0 then
@@ -970,16 +1006,11 @@ local function listBody(availW, sub)
         S.sel = idx
         activate()
       end,
-      onHover = function(state)
-        if state == "true" then
-          S.sel = idx
-          render()
-        end
-      end,
+      onHover = hoverHandler(idx),
     }
-    local selected = idx == S.sel
-    if selected then
-      props.fill = "primary/0.22"
+    local fill = rowFill(idx, false)
+    if fill ~= nil then
+      props.fill = fill
     end
     local cells = {
       ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
@@ -1019,7 +1050,6 @@ local function tableBody(availW)
   local nodes = {}
   for r, row in ipairs(S.rows) do
     local idx = r
-    local selected = idx == S.sel
     local cells = {}
     for c = 1, #cols do
       local v = row[c]
@@ -1043,17 +1073,11 @@ local function tableBody(availW)
         S.sel = idx
         render()
       end,
-      onHover = function(state)
-        if state == "true" then
-          S.sel = idx
-          render()
-        end
-      end,
+      onHover = hoverHandler(idx),
     }
-    if selected then
-      props.fill = "primary/0.22"
-    elseif idx % 2 == 0 then
-      props.fill = "on_surface/0.04"
+    local fill = rowFill(idx, true)
+    if fill ~= nil then
+      props.fill = fill
     end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
@@ -1075,7 +1099,6 @@ local function detailBody(availW)
   local nodes = {}
   for i, pair in ipairs(S.detailPairs) do
     local idx = i
-    local selected = idx == S.sel
     local props = {
       key = "dp-" .. tostring(idx),
       align = "center",
@@ -1087,17 +1110,11 @@ local function detailBody(availW)
         S.sel = idx
         render()
       end,
-      onHover = function(state)
-        if state == "true" then
-          S.sel = idx
-          render()
-        end
-      end,
+      onHover = hoverHandler(idx),
     }
-    if selected then
-      props.fill = "primary/0.22"
-    elseif idx % 2 == 0 then
-      props.fill = "on_surface/0.04"
+    local fill = rowFill(idx, true)
+    if fill ~= nil then
+      props.fill = fill
     end
     nodes[#nodes + 1] = ui.row(props, {
       cell("f", fw, ui.label({
@@ -1141,7 +1158,7 @@ local function formBody(availW)
   if f == nil then
     return ui.column({ key = "empty", flexGrow = 1 })
   end
-  local W = math.min(availW, 560)
+  local W = math.min(availW, 520)
 
   local function driverBtn(driver, label)
     return ui.button({
@@ -1195,17 +1212,20 @@ local function formBody(availW)
     ui.button({ key = "save", text = "Save", variant = "primary", onClick = function() saveForm() end }),
   })
 
-  return ui.column({ key = "form", flexGrow = 1, gap = 10, align = "start" }, {
-    ui.label({
-      key = "ftitle",
-      text = f.name ~= "" and ("Edit connection — " .. f.name) or "New connection",
-      fontSize = 15,
-      fontWeight = "bold",
-      color = "on_surface",
-    }),
-    ui.scroll({ key = "formscroll", flexGrow = 1 }, {
-      ui.column({ key = "formcol", gap = 10, width = W }, fields),
-    }),
+  -- Title first, then the card centered both axes so nothing looks clipped.
+  table.insert(fields, 1, ui.label({
+    key = "ftitle",
+    text = f.name ~= "" and ("Edit connection — " .. f.name) or "New connection",
+    fontSize = 15,
+    fontWeight = "bold",
+    color = "on_surface",
+  }))
+
+  return ui.column({ key = "form", flexGrow = 1, align = "center", justify = "center" }, {
+    ui.column({
+      key = "formCard", gap = 10, width = W, padding = 18, radius = 12,
+      border = "outline/0.5", borderWidth = 1, fill = "on_surface/0.04",
+    }, fields),
   })
 end
 
@@ -1417,6 +1437,7 @@ function onOpen(_context)
   S.confirm = nil
   S.inputMode = ""
   S.detail = false
+  S.hover = 0
   if jumpToSummon() then
     return
   end
