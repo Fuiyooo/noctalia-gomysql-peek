@@ -203,6 +203,17 @@ func buildDSN(p connProfile, db string) string {
 		url.QueryEscape(p.User), url.QueryEscape(p.Password), p.Host, p.Port, db)
 }
 
+// pgDQValue renders a single lib/pq keyword/value field value. Values that
+// contain whitespace, single quotes or backslashes must be single-quoted, with
+// a backslash escaping the next character. Callers must never emit an empty
+// value: an unquoted "key=" corrupts the rest of the DSN (see open).
+func pgDQValue(v string) string {
+	if strings.ContainsAny(v, " '\\") {
+		v = "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+	}
+	return v
+}
+
 func open(ctx context.Context, p connProfile, db string) *sql.DB {
 	driver := normDriver(p.Driver)
 	var dr, dsn string
@@ -233,15 +244,25 @@ func open(ctx context.Context, p connProfile, db string) *sql.DB {
 			name = p.Database
 		}
 		dr = "postgres"
-		// lib/pq parsing: "password=" (kosong) menelen token berikutnya —
-		// password kosong harus dihilangkan dari DSN, bukan dibiarkan kosong.
-		if p.Password != "" {
-			dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-				p.Host, port, p.User, p.Password, name)
-		} else {
-			dsn = fmt.Sprintf("host=%s port=%s user=%s dbname=%s sslmode=disable",
-				p.Host, port, p.User, name)
+		// lib/pq keyword/value parsing: an *unquoted* empty value ("dbname=" or
+		// "password=") swallows the next token, silently dropping sslmode and
+		// making the driver fall back to its default sslmode=require, which
+		// surfaces as the misleading "pq: SSL is not enabled on the server".
+		// Drop empty fields entirely and quote values that need it.
+		var fields []string
+		for _, kv := range [][2]string{
+			{"host", p.Host},
+			{"port", port},
+			{"user", p.User},
+			{"password", p.Password},
+			{"dbname", name},
+		} {
+			if kv[1] != "" {
+				fields = append(fields, kv[0]+"="+pgDQValue(kv[1]))
+			}
 		}
+		fields = append(fields, "sslmode=disable")
+		dsn = strings.Join(fields, " ")
 	}
 	handle, err := sql.Open(dr, dsn)
 	if err != nil {
