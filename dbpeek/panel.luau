@@ -56,7 +56,6 @@ local S = {
   inputToken = 0,
   searchTerm = "", whereClause = "", sqlText = "",
   suggest = {},
-  schemaCache = nil,          -- { db = name, tables = { {name=,columns=} } }
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
   confirm = nil,
@@ -421,34 +420,67 @@ local function currentToken(text)
   return string.match(text or "", "([%w_]*)$") or ""
 end
 
-local computeSuggestions -- forward declaration (ensureSchema calls it)
+-- Suggestion vocabulary: SQL keywords + table/column names parsed from the
+-- bundled demo SQL files (dbpeek/demo/*.sql), so suggestions work without a
+-- live schema query.
+local SQL_TYPES = {
+  TEXT = true, INT = true, INTEGER = true, VARCHAR = true, CHAR = true,
+  NUMERIC = true, DECIMAL = true, SERIAL = true, BIGSERIAL = true, BIGINT = true,
+  SMALLINT = true, DATE = true, TIMESTAMP = true, BOOLEAN = true, REAL = true,
+  DOUBLE = true, UUID = true,
+}
 
--- Loads table/column names once per database for the suggestion list.
-local function ensureSchema()
-  if S.active == nil then
-    return
-  end
-  if S.schemaCache ~= nil and S.schemaCache.db == S.database then
-    return
-  end
-  S.schemaCache = { db = S.database, tables = {} }
-  engine.run({ "schema", "--profile", S.active.name, "--db", S.database }, function(ok, data)
-    local tables = {}
-    if ok and data and data.tables ~= nil then
-      tables = data.tables
+local DEMO_VOCAB = nil
+
+local function parseDemoVocab(text)
+  local out = {}
+  for line in string.gmatch(text or "", "[^\n]+") do
+    local t = string.gsub(line, "^%s+", "")
+    local tbl = string.match(t, "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+([%a_][%w_]*)")
+    if tbl == nil then
+      tbl = string.match(
+        t,
+        "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+[Ii][Ff]%s+[Nn][Oo][Tt]%s+[Ee][Xx][Ii][Ss][Tt][Ss]%s+([%a_][%w_]*)"
+      )
     end
-    S.schemaCache = { db = S.database, tables = tables }
-    computeSuggestions()
-    render()
-  end)
+    if tbl ~= nil then
+      out[tbl] = true
+    else
+      local col, ty = string.match(t, "^([%a_][%w_]*)%s+([%a]+)")
+      if col ~= nil and ty ~= nil and SQL_TYPES[string.upper(ty)] ~= nil then
+        out[col] = true
+      end
+    end
+  end
+  return out
 end
 
-computeSuggestions = function()
+local function ensureDemoVocab()
+  if DEMO_VOCAB ~= nil then
+    return
+  end
+  DEMO_VOCAB = {}
+  local dir = noctalia.pluginDir()
+  if dir == nil then
+    return
+  end
+  for _, file in ipairs({ "/demo/schema.sql", "/demo/mysql.sql", "/demo/postgres.sql" }) do
+    local text = noctalia.readFile(dir .. file)
+    if text ~= nil then
+      for name in pairs(parseDemoVocab(text)) do
+        DEMO_VOCAB[name] = true
+      end
+    end
+  end
+end
+
+local function computeSuggestions()
   local tok = currentToken(S.sqlText)
   if tok == "" then
     S.suggest = {}
     return
   end
+  ensureDemoVocab()
   local low = string.lower(tok)
   local seen, out = {}, {}
   local function add(v)
@@ -462,12 +494,14 @@ computeSuggestions = function()
       add(k)
     end
   end
-  if S.schemaCache ~= nil then
-    for _, t in ipairs(S.schemaCache.tables or {}) do
-      add(t.name)
-      for _, c in ipairs(t.columns or {}) do
-        add(c)
-      end
+  local names = {}
+  for name in pairs(DEMO_VOCAB) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if string.sub(string.lower(name), 1, #low) == low then
+      add(name)
     end
   end
   local capped = {}
@@ -500,7 +534,7 @@ local function openInput(mode)
   if mode == "sql" then
     S.sqlText = S.lastSql or ""
     S.suggest = {}
-    ensureSchema()
+    ensureDemoVocab()
   end
   render()
 end
@@ -887,6 +921,12 @@ local function listRow(props, children)
   return ui.row(props, children)
 end
 
+-- ui.label ignores `width` (only `maxWidth` is honoured), so every table cell
+-- is wrapped in a fixed-width column to keep the header and rows aligned.
+local function cell(key, w, labelNode)
+  return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
+end
+
 local function listBody(availW, sub)
   local itemsList = items()
   if #itemsList == 0 then
@@ -962,13 +1002,13 @@ local function tableBody(availW)
       ui.label({ key = "e", text = S.busy and "loading…" or "No rows", fontSize = 13, color = "on_surface_variant" }),
     })
   end
-  local widths = format.fitWidths(cols, S.rows, availW - 16, 7, CELL_GAP)
+  local widths = format.fitWidths(cols, S.rows, availW - 20, 7, CELL_GAP)
   local headCells = {}
   for c = 1, #cols do
-    headCells[#headCells + 1] = ui.label({
-      key = "h" .. c, text = tostring(cols[c]), fontSize = 12, fontWeight = "bold",
-      color = "on_surface", width = widths[c], maxLines = 1,
-    })
+    headCells[#headCells + 1] = cell("h" .. c, widths[c], ui.label({
+      key = "hl" .. c, text = tostring(cols[c]), fontSize = 12, fontWeight = "bold",
+      color = "on_surface", maxLines = 1,
+    }))
   end
   headCells[#headCells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
   local headerRow = ui.row({
@@ -983,14 +1023,13 @@ local function tableBody(availW)
     local cells = {}
     for c = 1, #cols do
       local v = row[c]
-      cells[#cells + 1] = ui.label({
-        key = "c" .. c,
+      cells[#cells + 1] = cell("c" .. c, widths[c], ui.label({
+        key = "cl" .. c,
         text = format.cell(v),
         fontSize = 12,
-        width = widths[c],
         maxLines = 1,
         color = format.isNull(v) and "on_surface_variant" or "on_surface",
-      })
+      }))
     end
     cells[#cells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
     local props = {
@@ -1028,9 +1067,10 @@ end
 local function detailBody(availW)
   local fw = math.min(math.max(120, math.floor(availW * 0.3)), 320)
   local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP, fill = "on_surface/0.06", radius = 6 }, {
-    ui.label({ key = "f", text = "Field", fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1 }),
-    ui.label({ key = "v", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
-    ui.spacer({ key = "sp", flexGrow = 1 }),
+    cell("hf", fw, ui.label({ key = "hfl", text = "Field", fontSize = 12, fontWeight = "bold", maxLines = 1 })),
+    ui.column({ key = "hv", flexGrow = 1, justify = "center" }, {
+      ui.label({ key = "hvl", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
+    }),
   })
   local nodes = {}
   for i, pair in ipairs(S.detailPairs) do
@@ -1060,12 +1100,15 @@ local function detailBody(availW)
       props.fill = "on_surface/0.04"
     end
     nodes[#nodes + 1] = ui.row(props, {
-      ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = "on_surface" }),
-      ui.label({
-        key = "v", text = format.cell(pair.value), fontSize = 12, maxLines = 1,
-        color = format.isNull(pair.value) and "on_surface_variant" or "on_surface",
+      cell("f", fw, ui.label({
+        key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, color = "on_surface",
+      })),
+      ui.column({ key = "v", flexGrow = 1, justify = "center" }, {
+        ui.label({
+          key = "vl", text = format.cell(pair.value), fontSize = 12, maxLines = 1,
+          color = format.isNull(pair.value) and "on_surface_variant" or "on_surface",
+        }),
       }),
-      ui.spacer({ key = "sp", flexGrow = 1 }),
     })
   end
   return ui.column({ key = "detail", flexGrow = 1, gap = 2 }, {
