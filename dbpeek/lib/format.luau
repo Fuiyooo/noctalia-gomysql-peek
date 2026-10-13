@@ -88,6 +88,22 @@ function M.fitWidths(cols, rows, avail, charW, gap)
   return widths
 end
 
+-- Truncate `text` to at most `maxChars` characters (adding an ellipsis), so a
+-- wrapped cell cannot exceed its allotted line budget.
+function M.clip(text, maxChars)
+  local s = tostring(text)
+  if maxChars == nil or maxChars < 1 then
+    return s
+  end
+  if #s <= maxChars then
+    return s
+  end
+  if maxChars <= 1 then
+    return "\u{2026}"
+  end
+  return string.sub(s, 1, maxChars - 1) .. "\u{2026}"
+end
+
 function M.rangeLabel(offset, shown, total, truncated)
   if shown == 0 then
     return "no rows"

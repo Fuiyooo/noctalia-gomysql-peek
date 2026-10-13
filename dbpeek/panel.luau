@@ -42,6 +42,9 @@ local PAGE = tonumber(confStr("page_size", "50")) or 50
 
 -- Gap between table cells/columns (kept identical on the header so columns align).
 local CELL_GAP = 14
+-- Approximate monospace advance (px) and how many lines a data cell may wrap to.
+local CELL_CHARW = 7
+local WRAP_LINES = 3
 
 -- ── state ───────────────────────────────────────────────────────────────────
 local S = {
@@ -1093,11 +1096,12 @@ local function tableBody(availW)
       ui.label({ key = "e", text = S.busy and "loading…" or "No rows", fontSize = 13, color = "on_surface_variant" }),
     })
   end
-  local widths = format.fitWidths(cols, S.rows, availW - 20, 7, CELL_GAP)
+  local widths = format.fitWidths(cols, S.rows, availW - 20, CELL_CHARW, CELL_GAP)
   local headCells = {}
   for c = 1, #cols do
+    local charsPerLine = math.max(1, math.floor((widths[c] - 10) / CELL_CHARW))
     headCells[#headCells + 1] = cell("h" .. c, widths[c], ui.label({
-      key = "hl" .. c, text = tostring(cols[c]), fontSize = 12, fontWeight = "bold",
+      key = "hl" .. c, text = format.clip(tostring(cols[c]), charsPerLine), fontSize = 12, fontWeight = "bold",
       color = "on_surface", maxLines = 1, maxWidth = widths[c],
     }))
   end
@@ -1113,11 +1117,12 @@ local function tableBody(availW)
     local cells = {}
     for c = 1, #cols do
       local v = row[c]
+      local charsPerLine = math.max(1, math.floor((widths[c] - 10) / CELL_CHARW))
       cells[#cells + 1] = cell("c" .. c, widths[c], ui.label({
         key = "cl" .. c,
-        text = format.cell(v),
+        text = format.clip(format.cell(v), charsPerLine * WRAP_LINES),
         fontSize = 12,
-        maxLines = 1,
+        maxLines = WRAP_LINES,
         maxWidth = widths[c],
         color = format.isNull(v) and "on_surface_variant" or "on_surface",
       }))
@@ -1126,8 +1131,8 @@ local function tableBody(availW)
     local props = {
       key = "r-" .. tostring(idx),
       align = "center",
-      height = 30,
       paddingH = 10,
+      paddingV = 4,
       gap = CELL_GAP,
       radius = 6,
     }
@@ -1158,21 +1163,24 @@ local function detailBody(availW)
     local props = {
       key = "dp-" .. tostring(idx),
       align = "center",
-      height = 30,
       paddingH = 10,
+      paddingV = 4,
       gap = CELL_GAP,
       radius = 6,
     }
     -- Always set fill so a previously selected row is cleared (the reconciler
     -- does not reset a fill prop that disappears).
     props.fill = rowFill(idx)
+    local fieldChars = math.max(1, math.floor((fw - 10) / CELL_CHARW))
+    local valueChars = math.max(1, math.floor((valueW - 10) / CELL_CHARW))
     nodes[#nodes + 1] = ui.row(props, {
       cell("f", fw, ui.label({
-        key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw, color = "on_surface",
+        key = "fl", text = format.clip(tostring(pair.field), fieldChars), fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw, color = "on_surface",
       })),
       ui.column({ key = "v", flexGrow = 1, justify = "center" }, {
         ui.label({
-          key = "vl", text = format.cell(pair.value), fontSize = 12, maxLines = 1, maxWidth = valueW,
+          key = "vl", text = format.clip(format.cell(pair.value), valueChars * WRAP_LINES), fontSize = 12,
+          maxLines = WRAP_LINES, maxWidth = valueW,
           color = format.isNull(pair.value) and "on_surface_variant" or "on_surface",
         }),
       }),
