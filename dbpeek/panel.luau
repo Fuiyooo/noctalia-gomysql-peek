@@ -937,16 +937,18 @@ local function listBody(availW, sub)
         end
       end,
     }
-    if idx == S.sel then
-      props.fill = "hover"
-    end
     local selected = idx == S.sel
+    if selected then
+      props.fill = "primary/0.22"
+    end
     local cells = {
-      ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = selected and "on_hover" or "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
+      ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
     }
     if S.view == "profiles" then
-      cells[#cells + 1] = ui.label({ key = "d", text = detail, fontSize = 11, color = selected and "on_hover" or "on_surface_variant", flexGrow = 1, maxLines = 1 })
-      cells[#cells + 1] = ui.label({ key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10, color = "primary" })
+      cells[#cells + 1] = ui.label({ key = "d", text = detail, fontSize = 11, color = "on_surface_variant", flexGrow = 1, maxLines = 1 })
+      cells[#cells + 1] = ui.label({ key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10, color = "on_surface_variant" })
+    else
+      cells[#cells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
     end
     nodes[#nodes + 1] = listRow(props, cells)
   end
@@ -968,9 +970,10 @@ local function tableBody(availW)
       color = "on_surface", width = widths[c], maxLines = 1,
     })
   end
+  headCells[#headCells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
   local headerRow = ui.row({
     key = "thead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP,
-    fill = "surface_variant", radius = 6,
+    fill = "on_surface/0.06", radius = 6,
   }, headCells)
 
   local nodes = {}
@@ -980,21 +983,16 @@ local function tableBody(availW)
     local cells = {}
     for c = 1, #cols do
       local v = row[c]
-      local color = "on_surface"
-      if format.isNull(v) then
-        color = selected and "on_hover" or "on_surface_variant"
-      elseif selected then
-        color = "on_hover"
-      end
       cells[#cells + 1] = ui.label({
         key = "c" .. c,
         text = format.cell(v),
         fontSize = 12,
         width = widths[c],
         maxLines = 1,
-        color = color,
+        color = format.isNull(v) and "on_surface_variant" or "on_surface",
       })
     end
+    cells[#cells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
     local props = {
       key = "r-" .. tostring(idx),
       align = "center",
@@ -1014,9 +1012,9 @@ local function tableBody(availW)
       end,
     }
     if selected then
-      props.fill = "hover"
+      props.fill = "primary/0.22"
     elseif idx % 2 == 0 then
-      props.fill = "surface_variant/0.35"
+      props.fill = "on_surface/0.04"
     end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
@@ -1029,9 +1027,10 @@ end
 
 local function detailBody(availW)
   local fw = math.min(math.max(120, math.floor(availW * 0.3)), 320)
-  local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP, fill = "surface_variant", radius = 6 }, {
+  local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP, fill = "on_surface/0.06", radius = 6 }, {
     ui.label({ key = "f", text = "Field", fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1 }),
-    ui.label({ key = "v", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", flexGrow = 1, maxLines = 1 }),
+    ui.label({ key = "v", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
+    ui.spacer({ key = "sp", flexGrow = 1 }),
   })
   local nodes = {}
   for i, pair in ipairs(S.detailPairs) do
@@ -1056,16 +1055,17 @@ local function detailBody(availW)
       end,
     }
     if selected then
-      props.fill = "hover"
+      props.fill = "primary/0.22"
     elseif idx % 2 == 0 then
-      props.fill = "surface_variant/0.35"
+      props.fill = "on_surface/0.04"
     end
     nodes[#nodes + 1] = ui.row(props, {
-      ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = selected and "on_hover" or "on_surface" }),
+      ui.label({ key = "f", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", width = fw, maxLines = 1, color = "on_surface" }),
       ui.label({
-        key = "v", text = format.cell(pair.value), fontSize = 12, flexGrow = 1, maxLines = 1,
-        color = format.isNull(pair.value) and (selected and "on_hover" or "on_surface_variant") or (selected and "on_hover" or "on_surface"),
+        key = "v", text = format.cell(pair.value), fontSize = 12, maxLines = 1,
+        color = format.isNull(pair.value) and "on_surface_variant" or "on_surface",
       }),
+      ui.spacer({ key = "sp", flexGrow = 1 }),
     })
   end
   return ui.column({ key = "detail", flexGrow = 1, gap = 2 }, {

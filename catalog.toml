@@ -2,7 +2,7 @@
 [[plugin]]
 id          = "fuiyooo/dbpeek"
 name        = "DB Peek"
-version     = "0.3.0"
+version     = "0.4.0"
 author      = "Fuiyooo"
 license     = "MIT"
 icon        = "database"
