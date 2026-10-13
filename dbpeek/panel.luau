@@ -50,12 +50,12 @@ local S = {
   profiles = {}, databases = {}, tables = {},
   active = nil, database = "", table = "",
   columns = {}, rows = {}, total = 0, offset = 0, limit = PAGE, truncated = false,
-  sel = 1, detail = false, detailPairs = {}, detailRow = 1, hover = 0,
+  sel = 1, detail = false, detailPairs = {}, detailRow = 1,
   filter = "",
-  inputMode = "",             -- "" | search | where | sql
+  inputMode = "",             -- "" | search | where | sql | filter
   inputToken = 0,
-  searchTerm = "", whereClause = "", sqlText = "",
-  suggest = {},
+  inputText = "",
+  searchTerm = "", whereClause = "",
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
   confirm = nil,
@@ -64,6 +64,7 @@ local S = {
 
 local render -- forward declaration
 local runSql -- forward declaration (refresh() runs a query before runSql is defined)
+local addDemoConnection -- forward declaration (activate() uses it in the empty list)
 
 -- ── engine requests ─────────────────────────────────────────────────────────
 local function req(args, cb)
@@ -89,7 +90,6 @@ local function fetchProfiles(cb)
   req({ "profiles" }, function(data)
     if data then
       S.profiles = data.profiles or {}
-      S.hover = 0
       if S.sel > #S.profiles then
         S.sel = 1
       end
@@ -104,7 +104,6 @@ local function fetchDatabases()
   req({ "dbs", "--profile", S.active.name }, function(data)
     if data then
       S.databases = data.databases or {}
-      S.hover = 0
       if S.sel > #S.databases then
         S.sel = 1
       end
@@ -116,7 +115,6 @@ local function fetchTables()
   req({ "tables", "--profile", S.active.name, "--db", S.database }, function(data)
     if data then
       S.tables = data.tables or {}
-      S.hover = 0
       if S.sel > #S.tables then
         S.sel = 1
       end
@@ -178,7 +176,6 @@ local function fetchRows()
       S.total = data.total or 0
       S.offset = data.offset or 0
       S.truncated = data.truncated == true
-      S.hover = 0
       if S.sel > #S.rows then
         S.sel = 1
       end
@@ -200,7 +197,6 @@ end
 
 local function openProfile(profile)
   S.active = profile
-  S.hover = 0
   S.database = profile.database or ""
   S.table = ""
   S.filter = ""
@@ -212,7 +208,6 @@ end
 
 local function openDatabase(db)
   S.database = db
-  S.hover = 0
   S.table = ""
   S.filter = ""
   S.sel = 1
@@ -223,7 +218,6 @@ end
 
 local function openTable(t)
   S.table = t
-  S.hover = 0
   S.filter = ""
   S.sel = 1
   S.detail = false
@@ -289,7 +283,6 @@ local function activate()
   if S.view == "rows" then
     if S.detail then
       S.detail = false
-      S.hover = 0
     else
       S.detailRow = S.sel
       buildDetail()
@@ -302,6 +295,10 @@ local function activate()
   local list = items()
   local it = list[S.sel]
   if it == nil then
+    -- Empty connection list: Enter adds the demo connection.
+    if S.view == "profiles" and #S.profiles == 0 then
+      addDemoConnection()
+    end
     return
   end
   if S.view == "profiles" then
@@ -317,7 +314,6 @@ local function goBack()
   if S.busy then
     return
   end
-  S.hover = 0
   if S.inputMode ~= "" then
     S.inputMode = ""
     render()
@@ -336,6 +332,7 @@ local function goBack()
       return
     end
     S.view = "tables"
+    S.filter = ""
     S.sel = 1
     if #S.tables == 0 then
       fetchTables()
@@ -346,6 +343,7 @@ local function goBack()
   end
   if S.view == "tables" then
     S.view = "databases"
+    S.filter = ""
     S.sel = 1
     if #S.databases == 0 then
       fetchDatabases()
@@ -356,6 +354,7 @@ local function goBack()
   end
   if S.view == "databases" then
     S.view = "profiles"
+    S.filter = ""
     S.sel = 1
     render()
     return
@@ -416,135 +415,35 @@ local function nextPage()
   end
 end
 
--- ── SQL autosuggestion ──────────────────────────────────────────────────────
-local SQL_KEYWORDS = {
-  "SELECT", "FROM", "WHERE", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET",
-  "JOIN", "LEFT JOIN", "INNER JOIN", "RIGHT JOIN", "ON", "AS", "AND", "OR", "NOT",
-  "IN", "IS NULL", "IS NOT NULL", "LIKE", "ILIKE", "DISTINCT", "CASE", "WHEN",
-  "THEN", "ELSE", "END", "COUNT(*)", "SUM(", "AVG(", "MIN(", "MAX(", "DESC", "ASC",
-  "UNION", "UNION ALL", "SHOW", "DESCRIBE", "EXPLAIN", "WITH", "VALUES",
-}
-
-local function currentToken(text)
-  return string.match(text or "", "([%w_]*)$") or ""
-end
-
--- Suggestion vocabulary: SQL keywords + table/column names parsed from the
--- bundled demo SQL files (dbpeek/demo/*.sql), so suggestions work without a
--- live schema query.
-local SQL_TYPES = {
-  TEXT = true, INT = true, INTEGER = true, VARCHAR = true, CHAR = true,
-  NUMERIC = true, DECIMAL = true, SERIAL = true, BIGSERIAL = true, BIGINT = true,
-  SMALLINT = true, DATE = true, TIMESTAMP = true, BOOLEAN = true, REAL = true,
-  DOUBLE = true, UUID = true,
-}
-
-local DEMO_VOCAB = nil
-
-local function parseDemoVocab(text)
-  local out = {}
-  for line in string.gmatch(text or "", "[^\n]+") do
-    local t = string.gsub(line, "^%s+", "")
-    local tbl = string.match(t, "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+([%a_][%w_]*)")
-    if tbl == nil then
-      tbl = string.match(
-        t,
-        "^[Cc][Rr][Ee][Aa][Tt][Ee]%s+[Tt][Aa][Bb][Ll][Ee]%s+[Ii][Ff]%s+[Nn][Oo][Tt]%s+[Ee][Xx][Ii][Ss][Tt][Ss]%s+([%a_][%w_]*)"
-      )
-    end
-    if tbl ~= nil then
-      out[tbl] = true
-    else
-      local col, ty = string.match(t, "^([%a_][%w_]*)%s+([%a]+)")
-      if col ~= nil and ty ~= nil and SQL_TYPES[string.upper(ty)] ~= nil then
-        out[col] = true
-      end
-    end
-  end
-  return out
-end
-
-local function ensureDemoVocab()
-  if DEMO_VOCAB ~= nil then
-    return
-  end
-  DEMO_VOCAB = {}
-  local dir = noctalia.pluginDir()
-  if dir == nil then
-    return
-  end
-  for _, file in ipairs({ "/demo/schema.sql", "/demo/mysql.sql", "/demo/postgres.sql" }) do
-    local text = noctalia.readFile(dir .. file)
-    if text ~= nil then
-      for name in pairs(parseDemoVocab(text)) do
-        DEMO_VOCAB[name] = true
-      end
-    end
-  end
-end
-
-local function computeSuggestions()
-  local tok = currentToken(S.sqlText)
-  if tok == "" then
-    S.suggest = {}
-    return
-  end
-  ensureDemoVocab()
-  local low = string.lower(tok)
-  local seen, out = {}, {}
-  local function add(v)
-    if v ~= nil and v ~= "" and seen[v] == nil then
-      seen[v] = true
-      out[#out + 1] = v
-    end
-  end
-  for _, k in ipairs(SQL_KEYWORDS) do
-    if string.sub(string.lower(k), 1, #low) == low then
-      add(k)
-    end
-  end
-  local names = {}
-  for name in pairs(DEMO_VOCAB) do
-    names[#names + 1] = name
-  end
-  table.sort(names)
-  for _, name in ipairs(names) do
-    if string.sub(string.lower(name), 1, #low) == low then
-      add(name)
-    end
-  end
-  local capped = {}
-  for i = 1, math.min(#out, 6) do
-    capped[i] = out[i]
-  end
-  S.suggest = capped
-end
-
-local function insertSuggestion(value)
-  local text = S.sqlText or ""
-  local n = #currentToken(text)
-  local head = string.sub(text, 1, #text - n)
-  S.sqlText = head .. value
-  S.lastSql = S.sqlText
-  S.inputToken = S.inputToken + 1
-  S.suggest = {}
-  render()
-end
-
 local function openInput(mode)
-  if S.view ~= "rows" then
-    return
-  end
-  if mode == "search" and S.isQuery then
-    return
+  if mode == "filter" then
+    if S.view == "rows" or S.view == "form" then
+      return
+    end
+  else
+    if S.view ~= "rows" then
+      return
+    end
+    if mode == "search" and S.isQuery then
+      return
+    end
   end
   S.inputToken = S.inputToken + 1
   S.inputMode = mode
-  if mode == "sql" then
-    S.sqlText = S.lastSql or ""
-    S.suggest = {}
-    ensureDemoVocab()
+  if mode == "search" then
+    S.inputText = S.searchTerm
+  elseif mode == "where" then
+    S.inputText = S.whereClause
+  elseif mode == "sql" then
+    S.inputText = S.lastSql or ""
+  elseif mode == "filter" then
+    S.inputText = S.filter
   end
+  render()
+end
+
+local function closeInput()
+  S.inputMode = ""
   render()
 end
 
@@ -578,8 +477,6 @@ runSql = function(text)
       S.truncated = data.truncated == true
       S.isQuery = true
       S.lastSql = sql
-      S.sqlText = sql
-      S.suggest = {}
       S.sel = 1
       S.detail = false
       S.inputMode = ""
@@ -696,7 +593,7 @@ local function deleteSelected()
 end
 
 -- Creates a SQLite connection pointing at the bundled demo database.
-local function addDemoConnection()
+addDemoConnection = function()
   if S.busy then
     return
   end
@@ -739,14 +636,24 @@ function onKey(chord, pressed)
   -- Backspace reaches us the input did not take it, so close the input.
   if S.inputMode ~= "" then
     if chord == "BackSpace" then
-      S.inputMode = ""
-      render()
+      closeInput()
     end
     return
   end
   if S.view == "form" then
-    if chord == "BackSpace" then
+    if chord == "Return" then
+      saveForm()
+    elseif chord == "BackSpace" then
       goBack()
+    elseif S.form ~= nil and (chord == "1" or chord == "2" or chord == "3") then
+      if chord == "1" then
+        S.form.driver = "mysql"
+      elseif chord == "2" then
+        S.form.driver = "postgres"
+      else
+        S.form.driver = "sqlite"
+      end
+      render()
     end
     return
   end
@@ -811,6 +718,8 @@ function onKey(chord, pressed)
   elseif chord == "slash" then
     if S.view == "rows" and not S.isQuery then
       openInput("search")
+    elseif S.view == "profiles" or S.view == "databases" or S.view == "tables" then
+      openInput("filter")
     end
   elseif chord == "r" then
     refresh()
@@ -910,22 +819,6 @@ local function notice()
   })
 end
 
-local function filterInput(availW)
-  return ui.input({
-    key = "filter-" .. S.view,
-    value = S.filter,
-    placeholder = "Filter…",
-    controlSize = "sm",
-    fontSize = 12,
-    width = availW,
-    onChange = function(v)
-      S.filter = v
-      S.sel = 1
-      render()
-    end,
-  })
-end
-
 local function listRow(props, children)
   return ui.row(props, children)
 end
@@ -936,14 +829,11 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Row background priority: selected accent > hover (theme `hover`, like the
--- bar) > zebra. `zebra` is only used by the table/detail views, not lists.
+-- Row background: selected accent, else zebra (table/detail only). No hover —
+-- the UI is keyboard-driven.
 local function rowFill(idx, zebra)
   if idx == S.sel then
     return "primary/0.30"
-  end
-  if idx == S.hover then
-    return "hover"
   end
   if zebra and idx % 2 == 0 then
     return "on_surface/0.06"
@@ -951,16 +841,22 @@ local function rowFill(idx, zebra)
   return nil
 end
 
--- Hover must not move the selection; it only tracks which row is under the
--- pointer, and re-renders only when that changes.
-local function hoverHandler(idx)
-  return function(state)
-    local h = state == "true" and idx or 0
-    if h ~= S.hover then
-      S.hover = h
-      render()
-    end
-  end
+-- A small, non-interactive chip that shows the key(s) for an action.
+local function keyHint(text, selected)
+  return ui.column({
+    key = "hint-" .. text,
+    padding = 6,
+    radius = 6,
+    fill = selected and "primary/0.25" or "on_surface/0.06",
+  }, {
+    ui.label({
+      key = "hl-" .. text,
+      text = text,
+      fontSize = 11,
+      color = selected and "on_surface" or "on_surface_variant",
+      maxLines = 1,
+    }),
+  })
 end
 
 local function listBody(availW, sub)
@@ -969,14 +865,7 @@ local function listBody(availW, sub)
     if S.view == "profiles" and not S.busy then
       return ui.column({ key = "empty", flexGrow = 1, align = "center", justify = "center", gap = 10 }, {
         ui.label({ key = "e1", text = "No connections yet", fontSize = 13, color = "on_surface_variant" }),
-        ui.button({
-          key = "demo",
-          text = "Add demo connection (SQLite)",
-          variant = "primary",
-          onClick = function()
-            addDemoConnection()
-          end,
-        }),
+        keyHint("⏎ add demo connection"),
         ui.label({ key = "e2", text = "or press n to add your own", fontSize = 11, color = "on_surface_variant" }),
       })
     end
@@ -1002,11 +891,6 @@ local function listBody(availW, sub)
       height = 34,
       radius = 6,
       paddingH = 8,
-      onClick = function()
-        S.sel = idx
-        activate()
-      end,
-      onHover = hoverHandler(idx),
     }
     local fill = rowFill(idx, false)
     if fill ~= nil then
@@ -1069,11 +953,6 @@ local function tableBody(availW)
       paddingH = 10,
       gap = CELL_GAP,
       radius = 6,
-      onClick = function()
-        S.sel = idx
-        render()
-      end,
-      onHover = hoverHandler(idx),
     }
     local fill = rowFill(idx, true)
     if fill ~= nil then
@@ -1106,11 +985,6 @@ local function detailBody(availW)
       paddingH = 10,
       gap = CELL_GAP,
       radius = 6,
-      onClick = function()
-        S.sel = idx
-        render()
-      end,
-      onHover = hoverHandler(idx),
     }
     local fill = rowFill(idx, true)
     if fill ~= nil then
@@ -1160,27 +1034,17 @@ local function formBody(availW)
   end
   local W = math.min(availW, 520)
 
-  local function driverBtn(driver, label)
-    return ui.button({
-      key = "drv-" .. driver,
-      text = label,
-      variant = f.driver == driver and "primary" or "outline",
-      selected = f.driver == driver,
-      controlSize = "sm",
-      onClick = function()
-        f.driver = driver
-        render()
-      end,
-    })
+  local driverChip = function(driver, num, label)
+    return keyHint(num .. " " .. label, f.driver == driver)
   end
 
   local fields = {
     ui.column({ key = "ff-driver", gap = 3 }, {
       ui.label({ key = "l-driver", text = "Driver", fontSize = 11, color = "on_surface_variant" }),
-      ui.row({ key = "drivers", gap = 6 }, {
-        driverBtn("mysql", "MySQL"),
-        driverBtn("postgres", "PostgreSQL"),
-        driverBtn("sqlite", "SQLite"),
+      ui.row({ key = "drivers", gap = 6, align = "center" }, {
+        driverChip("mysql", "1", "MySQL"),
+        driverChip("postgres", "2", "PostgreSQL"),
+        driverChip("sqlite", "3", "SQLite"),
       }),
     }),
   }
@@ -1207,9 +1071,9 @@ local function formBody(availW)
   if S.formError ~= "" then
     fields[#fields + 1] = ui.label({ key = "ferr", text = S.formError, fontSize = 12, color = "error", maxLines = 2 })
   end
-  fields[#fields + 1] = ui.row({ key = "factions", gap = 8, justify = "end" }, {
-    ui.button({ key = "cancel", text = "Cancel", variant = "outline", onClick = function() goBack() end }),
-    ui.button({ key = "save", text = "Save", variant = "primary", onClick = function() saveForm() end }),
+  fields[#fields + 1] = ui.row({ key = "factions", gap = 6, justify = "end" }, {
+    keyHint("⌫ cancel"),
+    keyHint("⏎ save"),
   })
 
   -- Title first, then the card centered both axes so nothing looks clipped.
@@ -1233,102 +1097,66 @@ local function inputBar(availW)
   if S.inputMode == "" then
     return nil
   end
-  local placeholder = "Search all columns… (⏎ apply)"
+  local placeholder = "Search all columns…  (⏎ apply · ⌫ close)"
   if S.inputMode == "where" then
-    placeholder = "WHERE … (⏎ apply · empty clears)"
+    placeholder = "WHERE …  (⏎ apply · empty clears · ⌫ close)"
   elseif S.inputMode == "sql" then
-    placeholder = "Read-only SQL… (⏎ run)"
-  end
-  local seed = ""
-  if S.inputMode == "search" then
-    seed = S.searchTerm
-  elseif S.inputMode == "where" then
-    seed = S.whereClause
-  elseif S.inputMode == "sql" then
-    seed = S.sqlText
+    placeholder = "Read-only SQL…  (⏎ run · ⌫ close)"
+  elseif S.inputMode == "filter" then
+    placeholder = "Filter…  (⏎ close · ⌫ close)"
   end
 
   local row = ui.row({ key = "inputbar", gap = 8, align = "center" }, {
     ui.input({
       key = "in-" .. S.inputMode .. "-" .. tostring(S.inputToken),
-      value = seed,
+      value = S.inputText,
       placeholder = placeholder,
       fontSize = 13,
       flexGrow = 1,
       focus = true,
       submitOnEnter = true,
       onChange = function(v)
-        if S.inputMode == "sql" then
-          S.sqlText = v
-          S.lastSql = v
-          computeSuggestions()
+        S.inputText = v
+        if S.inputMode == "filter" then
+          S.filter = v
+          S.sel = 1
           render()
-        elseif S.inputMode == "search" then
-          S.searchTerm = v
-        else
-          S.whereClause = v
         end
       end,
       onSubmit = function()
         if S.inputMode == "search" then
-          applySearch(S.searchTerm)
+          applySearch(S.inputText)
         elseif S.inputMode == "where" then
-          applyWhere(S.whereClause)
+          applyWhere(S.inputText)
+        elseif S.inputMode == "sql" then
+          runSql(S.inputText)
         else
-          runSql(S.sqlText)
+          closeInput()
         end
       end,
     }),
-    ui.button({ key = "iclose", text = "Close", variant = "ghost", controlSize = "sm", onClick = function()
-      S.inputMode = ""
-      S.suggest = {}
-      render()
-    end }),
+    keyHint("⌫ close"),
   })
 
-  local children = { row }
-  if S.inputMode == "sql" and #S.suggest > 0 then
-    local btns = {}
-    for _, s in ipairs(S.suggest) do
-      btns[#btns + 1] = ui.button({
-        key = "sg-" .. s,
-        text = s,
-        variant = "ghost",
-        controlSize = "sm",
-        onClick = function()
-          insertSuggestion(s)
-        end,
-      })
-    end
-    children[#children + 1] = ui.row({ key = "suggest", gap = 6, align = "center" }, btns)
-  end
-  return ui.column({ key = "inputwrap", gap = 6 }, children)
+  return ui.column({ key = "inputwrap", gap = 6 }, { row })
 end
 
 local function footer(availW)
   local left
-  local buttons = {}
+  local chips = {}
   if S.view == "rows" then
     if S.detail then
       left = "row " .. tostring(S.detailRow) .. " / " .. tostring(#S.rows) .. "  ·  field " .. tostring(S.sel) .. " / " .. tostring(#S.detailPairs)
     else
       left = format.rangeLabel(S.offset, #S.rows, S.total, S.truncated)
     end
-    buttons[#buttons + 1] = ui.button({
-      key = "prev", text = "◀ Prev", variant = "ghost", controlSize = "sm",
-      enabled = not S.isQuery and S.offset > 0,
-      onClick = function() prevPage() end,
-    })
-    buttons[#buttons + 1] = ui.button({
-      key = "next", text = "Next ▶", variant = "ghost", controlSize = "sm",
-      enabled = not S.isQuery and (S.offset + #S.rows) < S.total,
-      onClick = function() nextPage() end,
-    })
+    chips[#chips + 1] = keyHint("← prev")
+    chips[#chips + 1] = keyHint("next →")
   elseif S.view == "profiles" then
     left = "n new · e edit · d delete"
-    buttons[#buttons + 1] = ui.button({ key = "new", text = "New", variant = "primary", controlSize = "sm", onClick = function() openNewForm() end })
-    buttons[#buttons + 1] = ui.button({ key = "edit", text = "Edit", variant = "outline", controlSize = "sm", onClick = function() openEditForm() end })
-    buttons[#buttons + 1] = ui.button({ key = "del", text = "Delete", variant = "destructive", controlSize = "sm", onClick = function() requestDelete() end })
+    chips[#chips + 1] = keyHint("n new")
+    chips[#chips + 1] = keyHint("e edit")
+    chips[#chips + 1] = keyHint("d delete")
   else
     left = hint()
   end
@@ -1337,7 +1165,7 @@ local function footer(availW)
   end
   return ui.row({ key = "footer", align = "center", gap = 8 }, {
     ui.label({ key = "left", text = left or "", fontSize = 11, color = "on_surface_variant", flexGrow = 1, maxLines = 1 }),
-    ui.row({ key = "btns", gap = 6 }, buttons),
+    ui.row({ key = "chips", gap = 6 }, chips),
   })
 end
 
@@ -1347,11 +1175,8 @@ local function confirmBar()
   end
   return ui.row({ key = "confirm", gap = 8, align = "center", fill = "error/0.15", radius = 8, paddingH = 10, paddingV = 6 }, {
     ui.label({ key = "msg", text = 'Remove connection "' .. tostring(S.confirm.name) .. '"?', fontSize = 12, color = "on_surface", flexGrow = 1 }),
-    ui.button({ key = "rm", text = "Remove", variant = "destructive", controlSize = "sm", onClick = function() deleteSelected() end }),
-    ui.button({ key = "cx", text = "Cancel", variant = "outline", controlSize = "sm", onClick = function()
-      S.confirm = nil
-      render()
-    end }),
+    keyHint("⏎ remove"),
+    keyHint("⌫ cancel"),
   })
 end
 
@@ -1385,9 +1210,6 @@ render = function()
   end
   children[#children + 1] = ui.separator({ key = "sep", color = "outline/0.5" })
 
-  if S.view == "profiles" or S.view == "databases" or S.view == "tables" then
-    children[#children + 1] = filterInput(inner)
-  end
   local ib = inputBar(inner)
   if ib ~= nil then
     children[#children + 1] = ib
@@ -1437,7 +1259,6 @@ function onOpen(_context)
   S.confirm = nil
   S.inputMode = ""
   S.detail = false
-  S.hover = 0
   if jumpToSummon() then
     return
   end

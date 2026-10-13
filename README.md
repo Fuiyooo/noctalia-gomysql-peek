@@ -69,9 +69,9 @@ Settings → Bar; clicking it toggles the panel.
 
 A ready-to-use **SQLite** dataset ships in `dbpeek/demo/` (`demo.db`, rebuilt
 with `sqlite3 demo.db < dbpeek/demo/schema.sql`) with `departments`, `employees`
-(60 rows) and `products`. With no connections configured, the overlay shows an
-**Add demo connection** button that creates a `demo` SQLite connection pointing
-at it — one click and you can test the whole flow.
+(60 rows) and `products`. With no connections configured, press **Enter** on the
+empty connections list to add a `demo` SQLite connection pointing at it — one
+keypress and you can test the whole flow.
 
 The same dataset is provided for **MySQL/MariaDB** and **PostgreSQL** as SQL
 scripts (DB Peek can't bundle a running server):
@@ -94,21 +94,18 @@ matching port and database `dbpeek_demo`.
 | ↑ / ↓ | Move selection (PgUp/PgDn ±8, Home/End ends) |
 | ⏎ | Open the selection (lists) / open the field-value view (rows) |
 | → ← | Next / previous page (in the field-value view: next/previous row) |
-| `/` | Search all columns of the open table |
+| `/` | Search all columns of the open table (in a list: filter it) |
 | `w` | Filter rows by a raw SQL `WHERE` expression (read-only) |
 | `q` | Run a read-only SQL query |
 | `r` | Refresh what you are viewing |
 | ⇧R | Reload the table fresh (drops query + search + where) |
 | `y` | In the field-value view: copy the focused value to the clipboard |
-| ⌫ (Backspace) | Back one level |
+| ⌫ (Backspace) | Back one level / close the current input |
 | `n` / `e` / `d` | New / edit / delete a connection (connections view) |
-| type | Filter the current list |
+| `1` / `2` / `3` | In the connection form: MySQL / PostgreSQL / SQLite |
 
-Everything is also clickable, and every action has an on-screen button.
-
-In the SQL box, **autosuggestions** appear as you type: SQL keywords plus the
-current database's table and column names (fetched once per database via the
-engine's `schema` command). Click a suggestion to insert it.
+The overlay is **keyboard-only** — no mouse. On-screen chips only show the keys
+for the current actions.
 
 > Escape is owned by Noctalia and closes the panel; use Backspace or a row click
 > to step back instead.

@@ -1,6 +1,6 @@
 id          = "fuiyooo/dbpeek"
 name        = "DB Peek"
-version     = "0.7.0"
+version     = "0.8.0"
 plugin_api  = 30
 author      = "Fuiyooo"
 license     = "MIT"
@@ -47,6 +47,7 @@ capture_keys = [
   "Prior", "Next", "Home", "End",
   "Return", "BackSpace",
   "n", "e", "d", "q", "w", "r", "y", "slash", "shift+R",
+  "1", "2", "3",
 ]
 
 [[widget]]
