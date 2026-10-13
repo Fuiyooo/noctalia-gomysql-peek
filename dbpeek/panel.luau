@@ -662,7 +662,7 @@ function onKey(chord, pressed)
       return
     end
     local now = noctalia.nowMs()
-    if now - S.escArmedAt < 1500 then
+    if now - S.escArmedAt < 3000 then
       S.escArmedAt = 0
       S.escWarn = false
       goBack()
@@ -1254,6 +1254,16 @@ render = function()
   local n = notice()
   if n ~= nil then
     children[#children + 1] = n
+  end
+  if S.escWarn then
+    children[#children + 1] = ui.column({
+      key = "escwarn",
+      fill = "primary/0.18",
+      radius = 6,
+      padding = 6,
+    }, {
+      ui.label({ key = "escwarnt", text = "press Esc again to go back", fontSize = 12, color = "primary", maxLines = 1 }),
+    })
   end
   children[#children + 1] = ui.separator({ key = "sep", color = "outline/0.5" })
 
