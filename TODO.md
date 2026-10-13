@@ -37,15 +37,18 @@ Notes from the SSL investigation (context for whoever picks this up):
 ## Porting gaps (omarchy -> noctalia)
 
 Identified while assessing the port; the Noctalia plugin is otherwise at parity.
+Upstream 0.9.3–0.9.6 (row highlight, zebra stripes, SQL autosuggestion, `Ctrl+B`
+Back, long-cell wrapping) has since been merged from the collaborator.
 
-- [ ] Mouse interaction for lists and table rows. `dbpeek/panel.luau` line ~8
-      claims "every list row is also clickable" but no click handlers exist
-      (only the bar widget has `onClick`). Either implement it or fix the
-      comment.
-- [ ] Horizontal scrolling for wide tables. The port fits column widths
-      (`lib/format.luau` `fitWidths`) and only scrolls vertically, so tables
-      with many columns get squeezed. The Omarchy plugin had a horizontal
-      `Flickable`.
+- [ ] Mouse interaction for lists and table rows. `dbpeek/panel.luau` line 8
+      still claims "every list row is also clickable" but there are no click
+      handlers (and the README now states the overlay is keyboard-only). Either
+      implement it or fix the comment.
+- [x] Wide tables: resolved by 0.9.6. Noctalia's `ui.scroll` is vertical-only
+      (and `ui.label` ellipsis/marquee is not exposed to plugins), so cells now
+      wrap (`maxLines=3`, content-driven row height) and over-long values are
+      clipped with an ellipsis (`format.clip`); widths still come from
+      `format.fitWidths`.
 - [ ] Contextual empty states. Omarchy showed "No databases visible for this
       user", "No tables in <db>", "No matches for <filter>"; the port shows a
       generic "No entries".
@@ -53,9 +56,10 @@ Identified while assessing the port; the Noctalia plugin is otherwise at parity.
       relies solely on `noctalia.runAsync(..., 60000)`.
 - [ ] IPC: add an explicit `close` verb (`dbpeek/panel.luau` / `widget.luau`);
       the engine's `schema` command is not surfaced in the UI.
-- [ ] Docs: the README's `[keybinds] cancel = ["ctrl+q"]` note does not match
-      Noctalia v5.2.1, whose `settings.json` has no top-level global `cancel`
-      keybind (only per-component keybinds). Verify and update.
+- [x] Docs keybind note: resolved by the collaborator's 0.9.5 README rewrite —
+      the stale `[keybinds] cancel = ["ctrl+q"]` note is gone. Back is now
+      `Ctrl+B` (Escape is owned by Noctalia) and `plugin.toml` `capture_keys`
+      drops `Escape`/`BackSpace`.
 
 ## Engine robustness
 
