@@ -684,12 +684,9 @@ function onKey(chord, pressed)
     end
     return
   end
-  -- While a text input is open the host gives it the keys it consumes; if a
-  -- Backspace reaches us the input did not take it, so close the input.
+  -- While a text input is open the host owns the keys it consumes (typing and
+  -- Backspace); Escape closes it (handled above).
   if S.inputMode ~= "" then
-    if chord == "BackSpace" then
-      closeInput()
-    end
     return
   end
   if S.view == "form" then
@@ -878,8 +875,13 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Rows carry no selection colour (the selected row is shown in the footer as
--- text instead). `fill` on rows is intentionally not set.
+-- Selected row/-item highlight (accent).
+local function rowFill(idx)
+  if idx == S.sel then
+    return "primary/0.30"
+  end
+  return nil
+end
 
 -- A small, non-interactive chip that shows the key(s) for an action.
 local function keyHint(text, selected)
@@ -932,6 +934,10 @@ local function listBody(availW, sub)
       radius = 6,
       paddingH = 8,
     }
+    local fill = rowFill(idx)
+    if fill ~= nil then
+      props.fill = fill
+    end
     local nameW = math.floor(availW * 0.34)
     local detailW = math.max(80, availW - nameW - 100)
     local cells = {
@@ -1000,6 +1006,10 @@ local function tableBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
+    local fill = rowFill(idx)
+    if fill ~= nil then
+      props.fill = fill
+    end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
   return ui.column({ key = "table", flexGrow = 1, gap = 2 }, {
@@ -1029,6 +1039,10 @@ local function detailBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
+    local fill = rowFill(idx)
+    if fill ~= nil then
+      props.fill = fill
+    end
     nodes[#nodes + 1] = ui.row(props, {
       cell("f", fw, ui.label({
         key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw, color = "on_surface",
