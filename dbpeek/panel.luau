@@ -6,7 +6,7 @@
 --
 -- Keyboard is delivered through the panel's capture_keys + onKey; every list
 -- row is also clickable. Escape is owned by the host (it dismisses the panel),
--- so "back" is BackSpace / the Back button / a row click.
+-- so "back" is double-Escape (the global Cancel keybind was moved to ctrl+q).
 
 local format = require("./lib/format.luau")
 local engine = require("./lib/engine.luau")
@@ -59,6 +59,7 @@ local S = {
   isQuery = false, lastSql = "",
   form = nil, formToken = 0, formError = "",
   confirm = nil,
+  escArmedAt = 0, escWarn = false,
   error = "", status = "", busy = false,
 }
 
@@ -504,6 +505,29 @@ local function emptyForm()
   return { driver = "mysql", name = "", host = "", port = "", user = "", password = "", database = "" }
 end
 
+local DRIVERS = { "mysql", "postgres", "sqlite" }
+
+-- Left/Right in the form cycle the driver.
+local function cycleDriver(delta)
+  if S.form == nil then
+    return
+  end
+  local idx = 1
+  for i, d in ipairs(DRIVERS) do
+    if d == S.form.driver then
+      idx = i
+    end
+  end
+  idx = idx + delta
+  if idx < 1 then
+    idx = #DRIVERS
+  elseif idx > #DRIVERS then
+    idx = 1
+  end
+  S.form.driver = DRIVERS[idx]
+  render()
+end
+
 local function openNewForm()
   if S.busy then
     return
@@ -623,16 +647,44 @@ function onKey(chord, pressed)
   if not pressed then
     return
   end
-  if S.confirm ~= nil then
-    if chord == "Return" then
-      deleteSelected()
-    elseif chord == "BackSpace" then
+
+  -- Escape is ours (the global Cancel keybind was moved to ctrl+q). First press
+  -- arms it, a second press within the window goes back; otherwise it closes an
+  -- open input / cancels the confirm prompt.
+  if chord == "Escape" then
+    if S.confirm ~= nil then
       S.confirm = nil
+      render()
+      return
+    end
+    if S.inputMode ~= "" then
+      closeInput()
+      return
+    end
+    local now = noctalia.nowMs()
+    if now - S.escArmedAt < 1500 then
+      S.escArmedAt = 0
+      S.escWarn = false
+      goBack()
+    else
+      S.escArmedAt = now
+      S.escWarn = true
       render()
     end
     return
   end
-  -- While a text input is open the host gives it the keys it consumes. If a
+
+  -- Any other key disarms the "esc again" prompt.
+  S.escWarn = false
+  S.escArmedAt = 0
+
+  if S.confirm ~= nil then
+    if chord == "Return" then
+      deleteSelected()
+    end
+    return
+  end
+  -- While a text input is open the host gives it the keys it consumes; if a
   -- Backspace reaches us the input did not take it, so close the input.
   if S.inputMode ~= "" then
     if chord == "BackSpace" then
@@ -643,17 +695,10 @@ function onKey(chord, pressed)
   if S.view == "form" then
     if chord == "Return" then
       saveForm()
-    elseif chord == "BackSpace" then
-      goBack()
-    elseif S.form ~= nil and (chord == "1" or chord == "2" or chord == "3") then
-      if chord == "1" then
-        S.form.driver = "mysql"
-      elseif chord == "2" then
-        S.form.driver = "postgres"
-      else
-        S.form.driver = "sqlite"
-      end
-      render()
+    elseif chord == "Left" then
+      cycleDriver(-1)
+    elseif chord == "Right" then
+      cycleDriver(1)
     end
     return
   end
@@ -693,8 +738,6 @@ function onKey(chord, pressed)
     end
   elseif chord == "Return" then
     activate()
-  elseif chord == "BackSpace" then
-    goBack()
   elseif chord == "n" then
     if S.view == "profiles" then
       openNewForm()
@@ -780,16 +823,16 @@ end
 
 local function hint()
   if S.view == "profiles" then
-    return "↑ ↓ move · ⏎ open · n new · e edit · d delete · backspace back"
+    return "↑ ↓ move · ⏎ open · n new · e edit · d delete · / filter · esc esc back"
   elseif S.view == "databases" or S.view == "tables" then
-    return "type to filter · ⏎ open · r refresh · backspace back"
+    return "↑ ↓ move · ⏎ open · / filter · r refresh · esc esc back"
   elseif S.view == "rows" then
     if S.detail then
-      return "↑ ↓ field · y copy · ⏎ back to data · backspace back"
+      return "↑ ↓ field · ← → row · y copy · ⏎ back to data · esc esc back"
     end
-    return "↑ ↓ row · ⏎ detail · / search · w where · q sql · ← → page · r refresh"
+    return "↑ ↓ row · ⏎ detail · / search · w where · q sql · ← → page · r refresh · esc esc back"
   elseif S.view == "form" then
-    return "fill the fields · Save / Cancel"
+    return "⏎ save · ← → driver · esc esc cancel"
   end
   return ""
 end
@@ -801,7 +844,13 @@ local function header()
       ui.label({ key = "t", text = title(), fontSize = 18, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
       ui.label({ key = "b", text = bc, fontSize = 11, color = "on_surface_variant", visible = bc ~= "", maxLines = 1 }),
     }),
-    ui.label({ key = "meta", text = S.busy and "loading…" or hint(), fontSize = 11, color = "on_surface_variant", maxLines = 1 }),
+    ui.label({
+      key = "meta",
+      text = S.escWarn and "press esc again to go back" or (S.busy and "loading…" or hint()),
+      fontSize = 11,
+      color = S.escWarn and "primary" or "on_surface_variant",
+      maxLines = 1,
+    }),
   })
 end
 
@@ -829,14 +878,11 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Row background: selected accent, else zebra (table/detail only). No hover —
--- the UI is keyboard-driven.
-local function rowFill(idx, zebra)
+-- Row background: only the selected row is highlighted (accent). No zebra and
+-- no hover — the UI is keyboard-driven.
+local function rowFill(idx)
   if idx == S.sel then
-    return "primary/0.30"
-  end
-  if zebra and idx % 2 == 0 then
-    return "on_surface/0.06"
+    return "primary/0.35"
   end
   return nil
 end
@@ -892,7 +938,7 @@ local function listBody(availW, sub)
       radius = 6,
       paddingH = 8,
     }
-    local fill = rowFill(idx, false)
+    local fill = rowFill(idx)
     if fill ~= nil then
       props.fill = fill
     end
@@ -954,7 +1000,7 @@ local function tableBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx, true)
+    local fill = rowFill(idx)
     if fill ~= nil then
       props.fill = fill
     end
@@ -986,7 +1032,7 @@ local function detailBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx, true)
+    local fill = rowFill(idx)
     if fill ~= nil then
       props.fill = fill
     end
@@ -1034,17 +1080,17 @@ local function formBody(availW)
   end
   local W = math.min(availW, 520)
 
-  local driverChip = function(driver, num, label)
-    return keyHint(num .. " " .. label, f.driver == driver)
+  local driverChip = function(driver, label)
+    return keyHint(label, f.driver == driver)
   end
 
   local fields = {
     ui.column({ key = "ff-driver", gap = 3 }, {
-      ui.label({ key = "l-driver", text = "Driver", fontSize = 11, color = "on_surface_variant" }),
+      ui.label({ key = "l-driver", text = "Driver  (← / →)", fontSize = 11, color = "on_surface_variant" }),
       ui.row({ key = "drivers", gap = 6, align = "center" }, {
-        driverChip("mysql", "1", "MySQL"),
-        driverChip("postgres", "2", "PostgreSQL"),
-        driverChip("sqlite", "3", "SQLite"),
+        driverChip("mysql", "MySQL"),
+        driverChip("postgres", "PostgreSQL"),
+        driverChip("sqlite", "SQLite"),
       }),
     }),
   }
@@ -1072,7 +1118,7 @@ local function formBody(availW)
     fields[#fields + 1] = ui.label({ key = "ferr", text = S.formError, fontSize = 12, color = "error", maxLines = 2 })
   end
   fields[#fields + 1] = ui.row({ key = "factions", gap = 6, justify = "end" }, {
-    keyHint("⌫ cancel"),
+    keyHint("esc cancel"),
     keyHint("⏎ save"),
   })
 
@@ -1135,7 +1181,7 @@ local function inputBar(availW)
         end
       end,
     }),
-    keyHint("⌫ close"),
+    keyHint("esc esc back"),
   })
 
   return ui.column({ key = "inputwrap", gap = 6 }, { row })
@@ -1160,6 +1206,7 @@ local function footer(availW)
   else
     left = hint()
   end
+  chips[#chips + 1] = keyHint("esc esc back")
   if S.isQuery and S.lastSql ~= "" then
     left = (left or "") .. "  ·  " .. S.lastSql
   end
@@ -1176,7 +1223,7 @@ local function confirmBar()
   return ui.row({ key = "confirm", gap = 8, align = "center", fill = "error/0.15", radius = 8, paddingH = 10, paddingV = 6 }, {
     ui.label({ key = "msg", text = 'Remove connection "' .. tostring(S.confirm.name) .. '"?', fontSize = 12, color = "on_surface", flexGrow = 1 }),
     keyHint("⏎ remove"),
-    keyHint("⌫ cancel"),
+    keyHint("esc cancel"),
   })
 end
 
@@ -1259,6 +1306,8 @@ function onOpen(_context)
   S.confirm = nil
   S.inputMode = ""
   S.detail = false
+  S.escWarn = false
+  S.escArmedAt = 0
   if jumpToSummon() then
     return
   end
