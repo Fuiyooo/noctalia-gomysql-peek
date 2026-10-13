@@ -878,14 +878,8 @@ local function cell(key, w, labelNode)
   return ui.column({ key = key, width = w, justify = "center" }, { labelNode })
 end
 
--- Row background: only the selected row is highlighted (accent). No zebra and
--- no hover — the UI is keyboard-driven.
-local function rowFill(idx)
-  if idx == S.sel then
-    return "primary/0.35"
-  end
-  return nil
-end
+-- Rows carry no selection colour (the selected row is shown in the footer as
+-- text instead). `fill` on rows is intentionally not set.
 
 -- A small, non-interactive chip that shows the key(s) for an action.
 local function keyHint(text, selected)
@@ -938,16 +932,21 @@ local function listBody(availW, sub)
       radius = 6,
       paddingH = 8,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
+    local nameW = math.floor(availW * 0.34)
+    local detailW = math.max(80, availW - nameW - 100)
     local cells = {
-      ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = "on_surface", width = math.floor(availW * 0.34), maxLines = 1 }),
+      ui.column({ key = "nc", width = nameW, justify = "center" }, {
+        ui.label({ key = "n", text = name, fontSize = 13, fontWeight = "bold", color = "on_surface", maxLines = 1, maxWidth = nameW }),
+      }),
     }
     if S.view == "profiles" then
-      cells[#cells + 1] = ui.label({ key = "d", text = detail, fontSize = 11, color = "on_surface_variant", flexGrow = 1, maxLines = 1 })
-      cells[#cells + 1] = ui.label({ key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10, color = "on_surface_variant" })
+      cells[#cells + 1] = ui.column({ key = "dc", flexGrow = 1, justify = "center" }, {
+        ui.label({ key = "d", text = detail, fontSize = 11, color = "on_surface_variant", maxLines = 1, maxWidth = detailW }),
+      })
+      cells[#cells + 1] = ui.label({
+        key = "dr", text = tostring(it.driver or "mysql"), fontSize = 10,
+        color = "on_surface_variant", maxLines = 1, maxWidth = 90,
+      })
     else
       cells[#cells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
     end
@@ -968,7 +967,7 @@ local function tableBody(availW)
   for c = 1, #cols do
     headCells[#headCells + 1] = cell("h" .. c, widths[c], ui.label({
       key = "hl" .. c, text = tostring(cols[c]), fontSize = 12, fontWeight = "bold",
-      color = "on_surface", maxLines = 1,
+      color = "on_surface", maxLines = 1, maxWidth = widths[c],
     }))
   end
   headCells[#headCells + 1] = ui.spacer({ key = "sp", flexGrow = 1 })
@@ -988,6 +987,7 @@ local function tableBody(availW)
         text = format.cell(v),
         fontSize = 12,
         maxLines = 1,
+        maxWidth = widths[c],
         color = format.isNull(v) and "on_surface_variant" or "on_surface",
       }))
     end
@@ -1000,10 +1000,6 @@ local function tableBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
     nodes[#nodes + 1] = ui.row(props, cells)
   end
   return ui.column({ key = "table", flexGrow = 1, gap = 2 }, {
@@ -1016,11 +1012,12 @@ end
 local function detailBody(availW)
   local fw = math.min(math.max(120, math.floor(availW * 0.3)), 320)
   local head = ui.row({ key = "dhead", align = "center", height = 30, paddingH = 10, gap = CELL_GAP, fill = "on_surface/0.06", radius = 6 }, {
-    cell("hf", fw, ui.label({ key = "hfl", text = "Field", fontSize = 12, fontWeight = "bold", maxLines = 1 })),
+    cell("hf", fw, ui.label({ key = "hfl", text = "Field", fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw })),
     ui.column({ key = "hv", flexGrow = 1, justify = "center" }, {
       ui.label({ key = "hvl", text = "Value", fontSize = 12, fontWeight = "bold", color = "on_surface", maxLines = 1 }),
     }),
   })
+  local valueW = math.max(80, availW - fw - CELL_GAP - 40)
   local nodes = {}
   for i, pair in ipairs(S.detailPairs) do
     local idx = i
@@ -1032,17 +1029,13 @@ local function detailBody(availW)
       gap = CELL_GAP,
       radius = 6,
     }
-    local fill = rowFill(idx)
-    if fill ~= nil then
-      props.fill = fill
-    end
     nodes[#nodes + 1] = ui.row(props, {
       cell("f", fw, ui.label({
-        key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, color = "on_surface",
+        key = "fl", text = tostring(pair.field), fontSize = 12, fontWeight = "bold", maxLines = 1, maxWidth = fw, color = "on_surface",
       })),
       ui.column({ key = "v", flexGrow = 1, justify = "center" }, {
         ui.label({
-          key = "vl", text = format.cell(pair.value), fontSize = 12, maxLines = 1,
+          key = "vl", text = format.cell(pair.value), fontSize = 12, maxLines = 1, maxWidth = valueW,
           color = format.isNull(pair.value) and "on_surface_variant" or "on_surface",
         }),
       }),
@@ -1187,6 +1180,26 @@ local function inputBar(availW)
   return ui.column({ key = "inputwrap", gap = 6 }, { row })
 end
 
+local function selectedLabel()
+  if S.view == "rows" then
+    if S.detail then
+      return ""
+    end
+    return "row " .. tostring(S.sel)
+  end
+  if S.view == "form" then
+    return ""
+  end
+  local it = items()[S.sel]
+  if it == nil then
+    return ""
+  end
+  if S.view == "profiles" then
+    return "▸ " .. tostring(it.name)
+  end
+  return "▸ " .. tostring(it)
+end
+
 local function footer(availW)
   local left
   local chips = {}
@@ -1205,6 +1218,10 @@ local function footer(availW)
     chips[#chips + 1] = keyHint("d delete")
   else
     left = hint()
+  end
+  local sel = selectedLabel()
+  if sel ~= "" then
+    left = "▸ " .. sel .. (left ~= nil and left ~= "" and ("    " .. left) or "")
   end
   chips[#chips + 1] = keyHint("esc esc back")
   if S.isQuery and S.lastSql ~= "" then
